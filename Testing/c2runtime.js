@@ -27952,7 +27952,11 @@ cr.getObjectRefTable = function () {
 		cr.plugins_.Mouse,
 		cr.plugins_.Touch,
 		cr.system_object.prototype.cnds.OnLayoutStart,
-		cr.behaviors.Physics.prototype.acts.SetWorldGravity
+		cr.behaviors.Physics.prototype.acts.SetWorldGravity,
+		cr.behaviors.DragnDrop.prototype.cnds.OnDrop,
+		cr.behaviors.Physics.prototype.acts.ApplyImpulseToward,
+		cr.plugins_.Touch.prototype.exps.X,
+		cr.plugins_.Touch.prototype.exps.Y
 	];
 };
 
