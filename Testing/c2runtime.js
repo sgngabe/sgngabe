@@ -31672,6 +31672,341 @@ cr.plugins_.Text = function(runtime)
 		
 }());
 
+// Slider bar
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Plugin class
+cr.plugins_.sliderbar = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	/////////////////////////////////////
+	var pluginProto = cr.plugins_.sliderbar.prototype;
+		
+	/////////////////////////////////////
+	// Object type class
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+
+	var typeProto = pluginProto.Type.prototype;
+
+	// called on startup for each object type
+	typeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Instance class
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	
+	var instanceProto = pluginProto.Instance.prototype;
+
+	// called whenever an instance is created
+	instanceProto.onCreate = function()
+	{
+		this.elem = document.createElement("input");
+		this.elem.type = "range";
+		
+		this.elem["max"] = this.properties[2];
+		this.elem["min"] = this.properties[1];
+		this.elem["step"] = this.properties[3];
+		this.elem["value"] = this.properties[0];
+		
+		this.elem.disabled = !this.properties[6];
+		this.elem.id = this.properties[7];
+		this.elem.title = this.properties[4];
+		document.body.appendChild(this.elem);
+		
+		this.element_hidden = false;
+		
+		if (!this.properties[5])			// initially invisible
+		{
+			this.elem.style.display = "none";
+			this.visible = false;
+			this.element_hidden = true;
+		}
+		
+		this.elem.onclick = (function (self) {
+			return function(e) {
+				e.stopPropagation();
+				
+				self.runtime.isInUserInputEvent = true;
+				self.runtime.trigger(cr.plugins_.sliderbar.prototype.cnds.OnClicked, self);
+				self.runtime.isInUserInputEvent = false;
+			};
+		})(this);
+		
+		this.elem.onchange = (function (self) {
+			return function(e) {
+				self.runtime.isInUserInputEvent = true;
+				self.runtime.trigger(cr.plugins_.sliderbar.prototype.cnds.OnChanged, self);
+				self.runtime.isInUserInputEvent = false;
+			};
+		})(this);
+		
+		// Prevent touches reaching the canvas
+		this.elem.addEventListener("touchstart", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		this.elem.addEventListener("touchmove", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		this.elem.addEventListener("touchend", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		// Prevent clicks being blocked
+		this.elem.addEventListener("mousedown", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.elem.addEventListener("mouseup", function (e) {
+			e.stopPropagation();
+		});
+		
+		// Prevent key presses being blocked by the Keyboard object
+		this.elem.addEventListener("keydown", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.elem.addEventListener("keyup", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.lastLeft = 0;
+		this.lastTop = 0;
+		this.lastRight = 0;
+		this.lastBottom = 0;
+		this.lastWinWidth = 0;
+		this.lastWinHeight = 0;
+			
+		this.updatePosition(true);
+		
+		this.runtime.tickMe(this);
+	};
+	
+	instanceProto.saveToJSON = function ()
+	{
+		var o = {
+			"v": this.elem["value"],
+			"mi": this.elem["min"],
+			"ma": this.elem["max"],
+			"s": this.elem["step"]
+		};
+		
+		return o;
+	};
+	
+	instanceProto.loadFromJSON = function (o)
+	{
+		this.elem["min"] = o["mi"];
+		this.elem["max"] = o["ma"];
+		this.elem["step"] = o["s"];
+		this.elem["value"] = o["v"];
+	};
+	
+	instanceProto.onDestroy = function ()
+	{
+		this.elem.parentElement.removeChild(this.elem);
+		this.elem = null;
+	};
+	
+	instanceProto.tick = function ()
+	{
+		this.updatePosition();
+	};
+	
+	var last_canvas_offset = null;
+	var last_checked_tick = -1;
+	
+	instanceProto.updatePosition = function (first)
+	{
+		var left = this.layer.layerToCanvas(this.x, this.y, true);
+		var top = this.layer.layerToCanvas(this.x, this.y, false);
+		var right = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, true);
+		var bottom = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, false);
+		
+		var rightEdge = this.runtime.width / this.runtime.devicePixelRatio;
+		var bottomEdge = this.runtime.height / this.runtime.devicePixelRatio;
+		
+		// Is entirely offscreen or invisible: hide
+		if (!this.visible || !this.layer.visible || right <= 0 || bottom <= 0 || left >= rightEdge || top >= bottomEdge)
+		{
+			if (!this.element_hidden)
+				this.elem.style.display = "none";
+			
+			this.element_hidden = true;
+			return;
+		}
+		
+		// Truncate to canvas size
+		if (left < 1)
+			left = 1;
+		if (top < 1)
+			top = 1;
+		if (right >= rightEdge)
+			right = rightEdge - 1;
+		if (bottom >= bottomEdge)
+			bottom = bottomEdge - 1;
+		
+		var curWinWidth = window.innerWidth;
+		var curWinHeight = window.innerHeight;
+			
+		// Avoid redundant updates
+		if (!first && this.lastLeft === left && this.lastTop === top && this.lastRight === right && this.lastBottom === bottom && this.lastWinWidth === curWinWidth && this.lastWinHeight === curWinHeight)
+		{
+			if (this.element_hidden)
+			{
+				this.elem.style.display = "";
+				this.element_hidden = false;
+			}
+			
+			return;
+		}
+			
+		this.lastLeft = left;
+		this.lastTop = top;
+		this.lastRight = right;
+		this.lastBottom = bottom;
+		this.lastWinWidth = curWinWidth;
+		this.lastWinHeight = curWinHeight;
+		
+		if (this.element_hidden)
+		{
+			this.elem.style.display = "";
+			this.element_hidden = false;
+		}
+		
+		var offx = Math.round(left) + this.runtime.canvas.offsetLeft;
+		var offy = Math.round(top) + this.runtime.canvas.offsetTop;
+		this.elem.style.position = "absolute";
+		this.elem.style.left = offx + "px";
+		this.elem.style.top = offy + "px";
+		this.elem.style.width = Math.round(right - left) + "px";
+		this.elem.style.height = Math.round(bottom - top) + "px";
+	};
+	
+	// only called if a layout object
+	instanceProto.draw = function(ctx)
+	{
+	};
+	
+	instanceProto.drawGL = function(glw)
+	{
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+	
+	Cnds.prototype.OnClicked = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.OnChanged = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.CompareValue = function (cmp, x)
+	{
+		return cr.do_cmp(parseFloat(this.elem["value"]), cmp, x);
+	};
+	
+	pluginProto.cnds = new Cnds();
+	
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.SetTooltip = function (text)
+	{
+		this.elem.title = text;
+	};
+	
+	Acts.prototype.SetVisible = function (vis)
+	{
+		this.visible = (vis !== 0);
+	};
+	
+	Acts.prototype.SetCSSStyle = function (p, v)
+	{
+		this.elem.style[cr.cssToCamelCase(p)] = v;
+	};
+	
+	Acts.prototype.SetValue = function (x)
+	{
+		this.elem["value"] = x;
+	};
+	
+	Acts.prototype.SetMaximum = function (x)
+	{
+		this.elem["max"] = x;
+	};
+	
+	Acts.prototype.SetMinimum = function (x)
+	{
+		this.elem["min"] = x;
+	};
+	
+	Acts.prototype.SetStep = function (x)
+	{
+		this.elem["step"] = x;
+	};
+	
+	Acts.prototype.SetEnabled = function (en)
+	{
+		this.elem.disabled = (en === 0);
+	};
+	
+	pluginProto.acts = new Acts();
+	
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+	
+	Exps.prototype.Value = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["value"]) || 0);
+	};
+	
+	Exps.prototype.Maximum = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["max"]) || 0);
+	};
+	
+	Exps.prototype.Minimum = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["min"]) || 0);
+	};
+	
+	Exps.prototype.Step = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["step"]) || 0);
+	};
+	
+	pluginProto.exps = new Exps();
+
+}());
+
 // Drag & Drop
 // ECMAScript 5 strict mode
 
@@ -35308,6 +35643,595 @@ cr.behaviors.Sin = function(runtime)
 	
 }());
 
+// 8 Direction
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Behavior class
+cr.behaviors.EightDir = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	var behaviorProto = cr.behaviors.EightDir.prototype;
+		
+	/////////////////////////////////////
+	// Behavior type class
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+	
+	var behtypeProto = behaviorProto.Type.prototype;
+
+	behtypeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Behavior instance class
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+		
+		// Key states
+		this.upkey = false;
+		this.downkey = false;
+		this.leftkey = false;
+		this.rightkey = false;
+		this.ignoreInput = false;
+		
+		// Simulated key states
+		this.simup = false;
+		this.simdown = false;
+		this.simleft = false;
+		this.simright = false;
+		
+		// attempted workaround for sticky keys bug
+		this.lastuptick = -1;
+		this.lastdowntick = -1;
+		this.lastlefttick = -1;
+		this.lastrighttick = -1;
+		
+		// Movement
+		this.dx = 0;
+		this.dy = 0;
+	};
+	
+	var behinstProto = behaviorProto.Instance.prototype;
+
+	behinstProto.onCreate = function()
+	{
+		// Load properties
+		this.maxspeed = this.properties[0];
+		this.acc = this.properties[1];
+		this.dec = this.properties[2];
+		this.directions = this.properties[3];	// 0=Up & down, 1=Left & right, 2=4 directions, 3=8 directions"
+		this.angleMode = this.properties[4];	// 0=No,1=90-degree intervals, 2=45-degree intervals, 3=360 degree (smooth)
+		this.defaultControls = this.properties[5];
+		
+		this.enabled = this.properties[6];
+		
+		var self = this;
+		
+		// Only bind keyboard events if default controls are in use
+		if (this.defaultControls)
+		{
+			document.addEventListener("keydown", function (info)
+			{
+				self.onKeyDown(info);
+			});
+			
+			document.addEventListener("keyup", function (info)
+			{
+				self.onKeyUp(info);
+			});
+		}
+	};
+	
+	behinstProto.saveToJSON = function ()
+	{
+		return {
+			"dx": this.dx,
+			"dy": this.dy,
+			"enabled": this.enabled,
+			"maxspeed": this.maxspeed,
+			"acc": this.acc,
+			"dec": this.dec,
+			"ignoreInput": this.ignoreInput
+		};
+	};
+	
+	behinstProto.loadFromJSON = function (o)
+	{
+		this.dx = o["dx"];
+		this.dy = o["dy"];
+		this.enabled = o["enabled"];
+		this.maxspeed = o["maxspeed"];
+		this.acc = o["acc"];
+		this.dec = o["dec"];
+		this.ignoreInput = o["ignoreInput"];
+		
+		this.upkey = false;
+		this.downkey = false;
+		this.leftkey = false;
+		this.rightkey = false;
+		
+		this.simup = false;
+		this.simdown = false;
+		this.simleft = false;
+		this.simright = false;
+		
+		this.lastuptick = -1;
+		this.lastdowntick = -1;
+		this.lastlefttick = -1;
+		this.lastrighttick = -1;
+	};
+
+	behinstProto.onKeyDown = function (info)
+	{	
+		var tickcount = this.runtime.tickcount;
+		
+		switch (info.which) {
+		case 37:	// left
+			info.preventDefault();
+			
+			// Workaround for sticky keys bug: reject if arriving on same tick as onKeyUp event
+			if (this.lastlefttick < tickcount)
+				this.leftkey = true;
+			
+			break;
+		case 38:	// up
+			info.preventDefault();
+			
+			if (this.lastuptick < tickcount)
+				this.upkey = true;
+				
+			break;
+		case 39:	// right
+			info.preventDefault();
+			
+			if (this.lastrighttick < tickcount)
+				this.rightkey = true;
+				
+			break;
+		case 40:	// down
+			info.preventDefault();
+			
+			if (this.lastdowntick < tickcount)
+				this.downkey = true;
+			
+			break;
+		}
+	};
+
+	behinstProto.onKeyUp = function (info)
+	{
+		var tickcount = this.runtime.tickcount;
+		
+		switch (info.which) {
+		case 37:	// left
+			info.preventDefault();
+			this.leftkey = false;
+			this.lastlefttick = tickcount;
+			break;
+		case 38:	// up
+			info.preventDefault();
+			this.upkey = false;
+			this.lastuptick = tickcount;
+			break;
+		case 39:	// right
+			info.preventDefault();
+			this.rightkey = false;
+			this.lastrighttick = tickcount;
+			break;
+		case 40:	// down
+			info.preventDefault();
+			this.downkey = false;
+			this.lastdowntick = tickcount;
+			break;
+		}
+	};
+	
+	behinstProto.onWindowBlur = function ()
+	{
+		this.upkey = false;
+		this.downkey = false;
+		this.leftkey = false;
+		this.rightkey = false;
+	};
+
+	behinstProto.tick = function ()
+	{
+		var dt = this.runtime.getDt(this.inst);
+		
+		var left = this.leftkey || this.simleft;
+		var right = this.rightkey || this.simright;
+		var up = this.upkey || this.simup;
+		var down = this.downkey || this.simdown;
+		this.simleft = false;
+		this.simright = false;
+		this.simup = false;
+		this.simdown = false;
+		
+		if (!this.enabled)
+			return;
+		
+		// Is already overlapping solid: must have moved itself in (e.g. by rotating or being crushed),
+		// so push out
+		var collobj = this.runtime.testOverlapSolid(this.inst);
+		if (collobj)
+		{
+			this.runtime.registerCollision(this.inst, collobj);
+			if (!this.runtime.pushOutSolidNearest(this.inst))
+				return;		// must be stuck in solid
+		}
+		
+		// Ignoring input: ignore all keys
+		if (this.ignoreInput)
+		{
+			left = false;
+			right = false;
+			up = false;
+			down = false;
+		}
+		
+		// Up & down mode: ignore left & right keys
+		if (this.directions === 0)
+		{
+			left = false;
+			right = false;
+		}
+		// Left & right mode: ignore up & down keys
+		else if (this.directions === 1)
+		{
+			up = false;
+			down = false;
+		}
+		
+		// 4 directions mode: up/down take priority over left/right
+		if (this.directions === 2 && (up || down))
+		{
+			left = false;
+			right = false;
+		}
+		
+		// Apply deceleration when no arrow key pressed, for each axis
+		if (left == right)	// both up or both down
+		{
+			if (this.dx < 0)
+			{
+				this.dx += this.dec * dt;
+				
+				if (this.dx > 0)
+					this.dx = 0;
+			}
+			else if (this.dx > 0)
+			{
+				this.dx -= this.dec * dt;
+				
+				if (this.dx < 0)
+					this.dx = 0;
+			}
+		}
+		
+		if (up == down)
+		{
+			if (this.dy < 0)
+			{
+				this.dy += this.dec * dt;
+				
+				if (this.dy > 0)
+					this.dy = 0;
+			}
+			else if (this.dy > 0)
+			{
+				this.dy -= this.dec * dt;
+				
+				if (this.dy < 0)
+					this.dy = 0;
+			}
+		}
+		
+		// Apply acceleration
+		var xacc = 0;
+		var yacc = 0;
+		
+		if (left && !right)
+		{
+			// Moving in opposite direction to current motion: add deceleration
+			if (this.dx > 0)
+				xacc = -(this.acc + this.dec);
+			else
+				xacc = -this.acc;
+		}
+		
+		if (right && !left)
+		{
+			if (this.dx < 0)
+				xacc = this.acc + this.dec;
+			else
+				xacc = this.acc;
+		}
+		
+		if (up && !down)
+		{
+			if (this.dy > 0)
+				yacc = -(this.acc + this.dec);
+			else
+				yacc = -this.acc;
+		}
+		
+		if (down && !up)
+		{
+			if (this.dy < 0)
+				yacc = this.acc + this.dec;
+			else
+				yacc = this.acc;
+		}
+		
+		this.dx += xacc * dt;
+		this.dy += yacc * dt;
+		
+		var ax, ay;
+		
+		if (this.dx !== 0 || this.dy !== 0)
+		{
+			// Limit to max speed
+			var speed = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+			
+			// Limit both the movement vector and the X and Y speeds according to the maximum speed at the current angle
+			var a = Math.atan2(this.dy, this.dx);
+			var maxSpeedX = this.maxspeed * Math.cos(a);
+			var maxSpeedY = this.maxspeed * Math.sin(a);
+			
+			if (speed > this.maxspeed)
+			{
+				this.dx = maxSpeedX;
+				this.dy = maxSpeedY;
+			}
+			
+			// For clamping when calling accelerate(), take the absolute value of the max speed on each axis
+			maxSpeedX = Math.abs(maxSpeedX);
+			maxSpeedY = Math.abs(maxSpeedY);
+			
+			// Save old position and angle
+			var oldx = this.inst.x;
+			var oldy = this.inst.y;
+			var oldangle = this.inst.angle;
+			
+			// Attempt X movement
+			this.inst.x += this.runtime.accelerate(this.dx, -maxSpeedX, maxSpeedX, xacc, dt);
+			this.inst.set_bbox_changed();
+			
+			collobj = this.runtime.testOverlapSolid(this.inst);
+			if (collobj)
+			{
+				// Try to push back out horizontally for a closer fit to the obstacle.
+				if (!this.runtime.pushOutSolid(this.inst, (this.dx < 0 ? 1 : -1), 0, Math.abs(Math.floor(this.dx * dt))))
+				{
+					// Failed to push out: restore previous (known safe) position.
+					this.inst.x = oldx;
+					this.inst.set_bbox_changed();
+				}
+				
+				this.dx = 0;
+				this.runtime.registerCollision(this.inst, collobj);
+			}
+			
+			this.inst.y += this.runtime.accelerate(this.dy, -maxSpeedY, maxSpeedY, yacc, dt);
+			this.inst.set_bbox_changed();
+			
+			collobj = this.runtime.testOverlapSolid(this.inst);
+			if (collobj)
+			{
+				// Try to push back out vertically.
+				if (!this.runtime.pushOutSolid(this.inst, 0, (this.dy < 0 ? 1 : -1), Math.abs(Math.floor(this.dy * dt))))
+				{
+					// Failed to push out
+					this.inst.y = oldy;
+					this.inst.set_bbox_changed();
+				}
+				
+				this.dy = 0;
+				this.runtime.registerCollision(this.inst, collobj);
+			}
+			
+			ax = cr.round6dp(this.dx);
+			ay = cr.round6dp(this.dy);
+			
+			// Apply angle so long as object is still moving and isn't entirely blocked by a solid
+			if ((ax !== 0 || ay !== 0) && this.inst.type.plugin.is_rotatable)
+			{
+				if (this.angleMode === 1)	// 90 degree intervals
+					this.inst.angle = cr.to_clamped_radians(Math.round(cr.to_degrees(Math.atan2(ay, ax)) / 90.0) * 90.0);
+				else if (this.angleMode === 2)	// 45 degree intervals
+					this.inst.angle = cr.to_clamped_radians(Math.round(cr.to_degrees(Math.atan2(ay, ax)) / 45.0) * 45.0);
+				else if (this.angleMode === 3)	// 360 degree
+					this.inst.angle = Math.atan2(ay, ax);
+			}
+				
+			this.inst.set_bbox_changed();
+			
+			if (this.inst.angle != oldangle)
+			{
+				collobj = this.runtime.testOverlapSolid(this.inst);
+				if (collobj)
+				{
+					this.inst.angle = oldangle;
+					this.inst.set_bbox_changed();
+					this.runtime.registerCollision(this.inst, collobj);
+				}
+			}
+		}
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+
+	Cnds.prototype.IsMoving = function ()
+	{
+		// In some cases floating point precision leaves the behavior with a tiny speed like 2.2e-16.
+		// To avoid this rounding error making "Is moving" true, use a small minimum speed instead.
+		var speed = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+		return speed > 1e-10;
+	};
+	
+	Cnds.prototype.CompareSpeed = function (cmp, s)
+	{
+		var speed = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+		
+		return cr.do_cmp(speed, cmp, s);
+	};
+	
+	Cnds.prototype.IsEnabled = function ()
+	{
+		return this.enabled;
+	};
+	
+	behaviorProto.cnds = new Cnds();
+
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.Stop = function ()
+	{
+		this.dx = 0;
+		this.dy = 0;
+	};
+	
+	Acts.prototype.Reverse = function ()
+	{
+		this.dx *= -1;
+		this.dy *= -1;
+	};
+	
+	Acts.prototype.SetIgnoreInput = function (ignoring)
+	{
+		this.ignoreInput = ignoring;
+	};
+	
+	Acts.prototype.SetSpeed = function (speed)
+	{
+		if (speed < 0)
+			speed = 0;
+		if (speed > this.maxspeed)
+			speed = this.maxspeed;
+			
+		// Speed is new magnitude of vector of motion
+		var a = Math.atan2(this.dy, this.dx);
+		this.dx = speed * Math.cos(a);
+		this.dy = speed * Math.sin(a);
+	};
+	
+	Acts.prototype.SetMaxSpeed = function (maxspeed)
+	{
+		this.maxspeed = maxspeed;
+		
+		if (this.maxspeed < 0)
+			this.maxspeed = 0;
+	};
+	
+	Acts.prototype.SetAcceleration = function (acc)
+	{
+		this.acc = acc;
+		
+		if (this.acc < 0)
+			this.acc = 0;
+	};
+	
+	Acts.prototype.SetDeceleration = function (dec)
+	{
+		this.dec = dec;
+		
+		if (this.dec < 0)
+			this.dec = 0;
+	};
+	
+	Acts.prototype.SimulateControl = function (ctrl)
+	{
+		// 0=left, 1=right, 2=up, 3=down
+		switch (ctrl) {
+		case 0:		this.simleft = true;	break;
+		case 1:		this.simright = true;	break;
+		case 2:		this.simup = true;		break;
+		case 3:		this.simdown = true;	break;
+		}
+	};
+	
+	Acts.prototype.SetEnabled = function (en)
+	{
+		this.enabled = (en === 1);
+	};
+	
+	Acts.prototype.SetVectorX = function (x_)
+	{
+		this.dx = x_;
+	};
+	
+	Acts.prototype.SetVectorY = function (y_)
+	{
+		this.dy = y_;
+	};
+	
+	behaviorProto.acts = new Acts();
+
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+
+	Exps.prototype.Speed = function (ret)
+	{
+		ret.set_float(Math.sqrt(this.dx * this.dx + this.dy * this.dy));
+	};
+	
+	Exps.prototype.MaxSpeed = function (ret)
+	{
+		ret.set_float(this.maxspeed);
+	};
+	
+	Exps.prototype.Acceleration = function (ret)
+	{
+		ret.set_float(this.acc);
+	};
+	
+	Exps.prototype.Deceleration = function (ret)
+	{
+		ret.set_float(this.dec);
+	};
+	
+	Exps.prototype.MovingAngle = function (ret)
+	{
+		ret.set_float(cr.to_degrees(Math.atan2(this.dy, this.dx)));
+	};
+	
+	Exps.prototype.VectorX = function (ret)
+	{
+		ret.set_float(this.dx);
+	};
+	
+	Exps.prototype.VectorY = function (ret)
+	{
+		ret.set_float(this.dy);
+	};
+	
+	behaviorProto.exps = new Exps();
+	
+}());
+
 cr.getObjectRefTable = function () {
 	return [
 		cr.plugins_.Sprite,
@@ -35326,12 +36250,15 @@ cr.getObjectRefTable = function () {
 		cr.plugins_.Button,
 		cr.plugins_.Audio,
 		cr.plugins_.Text,
+		cr.behaviors.EightDir,
+		cr.plugins_.sliderbar,
 		cr.system_object.prototype.cnds.OnLayoutStart,
 		cr.behaviors.Physics.prototype.acts.SetWorldGravity,
 		cr.behaviors.Bullet.prototype.acts.SetAngleOfMotion,
 		cr.behaviors.Physics.prototype.acts.SetEnabled,
+		cr.behaviors.Physics.prototype.acts.SetElasticity,
 		cr.behaviors.DragnDrop.prototype.cnds.OnDrop,
-		cr.plugins_.Button.prototype.cnds.IsChecked,
+		cr.system_object.prototype.cnds.CompareBoolVar,
 		cr.behaviors.Physics.prototype.acts.ApplyImpulseToward,
 		cr.plugins_.Touch.prototype.exps.X,
 		cr.plugins_.Touch.prototype.exps.Y,
@@ -35349,20 +36276,24 @@ cr.getObjectRefTable = function () {
 		cr.system_object.prototype.acts.GoToLayout,
 		cr.system_object.prototype.cnds.IsGroupActive,
 		cr.behaviors.Sin.prototype.cnds.IsEnabled,
-		cr.plugins_.Button.prototype.cnds.OnClicked,
-		cr.plugins_.Button.prototype.acts.SetText,
 		cr.behaviors.Physics.prototype.acts.EnableCollisions,
+		cr.plugins_.Touch.prototype.cnds.IsTouchingObject,
 		cr.system_object.prototype.acts.SetVar,
 		cr.plugins_.Text.prototype.acts.SetText,
+		cr.behaviors.Physics.prototype.acts.SetFriction,
 		cr.plugins_.Sprite.prototype.cnds.IsOverlapping,
 		cr.plugins_.Sprite.prototype.acts.SetBoolInstanceVar,
-		cr.system_object.prototype.cnds.CompareBoolVar,
 		cr.system_object.prototype.acts.SetBoolVar,
 		cr.system_object.prototype.cnds.ForEach,
 		cr.plugins_.Sprite.prototype.cnds.IsBoolInstanceVarSet,
 		cr.system_object.prototype.cnds.Every,
 		cr.system_object.prototype.acts.SubVar,
-		cr.system_object.prototype.cnds.CompareVar
+		cr.system_object.prototype.cnds.CompareVar,
+		cr.plugins_.Button.prototype.cnds.OnClicked,
+		cr.plugins_.Button.prototype.cnds.IsChecked,
+		cr.plugins_.Button.prototype.acts.SetText,
+		cr.plugins_.sliderbar.prototype.cnds.OnChanged,
+		cr.plugins_.sliderbar.prototype.exps.Value
 	];
 };
 
