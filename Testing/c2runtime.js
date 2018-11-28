@@ -21729,5151 +21729,6 @@ cr.system_object.prototype.loadFromJSON = function (o)
 cr.shaders = {};
 
 
-// Sprite
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Plugin class
-cr.plugins_.Sprite = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	var pluginProto = cr.plugins_.Sprite.prototype;
-		
-	/////////////////////////////////////
-	// Object type class
-	pluginProto.Type = function(plugin)
-	{
-		this.plugin = plugin;
-		this.runtime = plugin.runtime;
-	};
-
-	var typeProto = pluginProto.Type.prototype;
-	
-	function frame_getDataUri()
-	{
-		if (this.datauri.length === 0)
-		{		
-			// Get Sprite image as data URI
-			var tmpcanvas = document.createElement("canvas");
-			tmpcanvas.width = this.width;
-			tmpcanvas.height = this.height;
-			var tmpctx = tmpcanvas.getContext("2d");
-			
-			if (this.spritesheeted)
-			{
-				tmpctx.drawImage(this.texture_img, this.offx, this.offy, this.width, this.height,
-										 0, 0, this.width, this.height);
-			}
-			else
-			{
-				tmpctx.drawImage(this.texture_img, 0, 0, this.width, this.height);
-			}
-			
-			this.datauri = tmpcanvas.toDataURL("image/png");
-		}
-		
-		return this.datauri;
-	};
-
-	typeProto.onCreate = function()
-	{
-		if (this.is_family)
-			return;
-			
-		var i, leni, j, lenj;
-		var anim, frame, animobj, frameobj, wt, uv;
-		
-		this.all_frames = [];
-		this.has_loaded_textures = false;
-		
-		// Load all animation frames
-		for (i = 0, leni = this.animations.length; i < leni; i++)
-		{
-			anim = this.animations[i];
-			animobj = {};
-			animobj.name = anim[0];
-			animobj.speed = anim[1];
-			animobj.loop = anim[2];
-			animobj.repeatcount = anim[3];
-			animobj.repeatto = anim[4];
-			animobj.pingpong = anim[5];
-			animobj.sid = anim[6];
-			animobj.frames = [];
-			
-			for (j = 0, lenj = anim[7].length; j < lenj; j++)
-			{
-				frame = anim[7][j];
-				frameobj = {};
-				frameobj.texture_file = frame[0];
-				frameobj.texture_filesize = frame[1];
-				frameobj.offx = frame[2];
-				frameobj.offy = frame[3];
-				frameobj.width = frame[4];
-				frameobj.height = frame[5];
-				frameobj.duration = frame[6];
-				frameobj.hotspotX = frame[7];
-				frameobj.hotspotY = frame[8];
-				frameobj.image_points = frame[9];
-				frameobj.poly_pts = frame[10];
-				frameobj.pixelformat = frame[11];
-				frameobj.spritesheeted = (frameobj.width !== 0);
-				frameobj.datauri = "";		// generated on demand and cached
-				frameobj.getDataUri = frame_getDataUri;
-				
-				uv = {};
-				uv.left = 0;
-				uv.top = 0;
-				uv.right = 1;
-				uv.bottom = 1;
-				frameobj.sheetTex = uv;
-				
-				frameobj.webGL_texture = null;
-				
-				// Sprite sheets may mean multiple frames reference one image
-				// Ensure image is not created in duplicate
-				wt = this.runtime.findWaitingTexture(frame[0]);
-				
-				if (wt)
-				{
-					frameobj.texture_img = wt;
-				}
-				else
-				{
-					frameobj.texture_img = new Image();
-					frameobj.texture_img.cr_src = frame[0];
-					frameobj.texture_img.cr_filesize = frame[1];
-					frameobj.texture_img.c2webGL_texture = null;
-					
-					// Tell runtime to wait on this texture
-					this.runtime.waitForImageLoad(frameobj.texture_img, frame[0]);
-				}
-				
-				cr.seal(frameobj);
-				animobj.frames.push(frameobj);
-				this.all_frames.push(frameobj);
-			}
-			
-			cr.seal(animobj);
-			this.animations[i] = animobj;		// swap array data for object
-		}
-	};
-	
-	typeProto.updateAllCurrentTexture = function ()
-	{
-		var i, len, inst;
-		for (i = 0, len = this.instances.length; i < len; i++)
-		{
-			inst = this.instances[i];
-			inst.curWebGLTexture = inst.curFrame.webGL_texture;
-		}
-	};
-	
-	typeProto.onLostWebGLContext = function ()
-	{
-		if (this.is_family)
-			return;
-			
-		var i, len, frame;
-		
-		// Release all animation frames
-		for (i = 0, len = this.all_frames.length; i < len; ++i)
-		{
-			frame = this.all_frames[i];
-			frame.texture_img.c2webGL_texture = null;
-			frame.webGL_texture = null;
-		}
-		
-		this.has_loaded_textures = false;
-		
-		this.updateAllCurrentTexture();
-	};
-	
-	typeProto.onRestoreWebGLContext = function ()
-	{
-		// No need to create textures if no instances exist, will create on demand
-		if (this.is_family || !this.instances.length)
-			return;
-			
-		var i, len, frame;
-		
-		// Re-load all animation frames
-		for (i = 0, len = this.all_frames.length; i < len; ++i)
-		{
-			frame = this.all_frames[i];
-			
-			frame.webGL_texture = this.runtime.glwrap.loadTexture(frame.texture_img, false, this.runtime.linearSampling, frame.pixelformat);
-		}
-		
-		this.updateAllCurrentTexture();
-	};
-	
-	typeProto.loadTextures = function ()
-	{
-		if (this.is_family || this.has_loaded_textures || !this.runtime.glwrap)
-			return;
-			
-		var i, len, frame;
-		for (i = 0, len = this.all_frames.length; i < len; ++i)
-		{
-			frame = this.all_frames[i];
-			
-			frame.webGL_texture = this.runtime.glwrap.loadTexture(frame.texture_img, false, this.runtime.linearSampling, frame.pixelformat);
-		}
-		
-		this.has_loaded_textures = true;
-	};
-	
-	typeProto.unloadTextures = function ()
-	{
-		// Don't release textures if any instances still exist, they are probably using them
-		if (this.is_family || this.instances.length || !this.has_loaded_textures)
-			return;
-			
-		var i, len, frame;
-		for (i = 0, len = this.all_frames.length; i < len; ++i)
-		{
-			frame = this.all_frames[i];
-			
-			this.runtime.glwrap.deleteTexture(frame.webGL_texture);
-			frame.webGL_texture = null;
-		}
-		
-		this.has_loaded_textures = false;
-	};
-	
-	var already_drawn_images = [];
-	
-	typeProto.preloadCanvas2D = function (ctx)
-	{
-		var i, len, frameimg;
-		cr.clearArray(already_drawn_images);
-		
-		for (i = 0, len = this.all_frames.length; i < len; ++i)
-		{
-			frameimg = this.all_frames[i].texture_img;
-			
-			if (already_drawn_images.indexOf(frameimg) !== -1)
-					continue;
-				
-			// draw to preload, browser should lazy load the texture
-			ctx.drawImage(frameimg, 0, 0);
-			already_drawn_images.push(frameimg);
-		}
-	};
-
-	/////////////////////////////////////
-	// Instance class
-	pluginProto.Instance = function(type)
-	{
-		this.type = type;
-		this.runtime = type.runtime;
-		
-		// Physics needs to see the collision poly before onCreate
-		var poly_pts = this.type.animations[0].frames[0].poly_pts;
-		
-		if (this.recycled)
-			this.collision_poly.set_pts(poly_pts);
-		else
-			this.collision_poly = new cr.CollisionPoly(poly_pts);
-	};
-	
-	var instanceProto = pluginProto.Instance.prototype;
-
-	instanceProto.onCreate = function()
-	{
-		this.visible = this.properties[0];
-		this.isTicking = false;
-		this.inAnimTrigger = false;
-		this.collisionsEnabled = this.properties[3];
-		
-		this.cur_animation = this.getAnimationByName(this.properties[1]) || this.type.animations[0];
-		this.cur_frame = this.properties[2];
-		
-		if (this.cur_frame < 0)
-			this.cur_frame = 0;
-		if (this.cur_frame >= this.cur_animation.frames.length)
-			this.cur_frame = this.cur_animation.frames.length - 1;
-			
-		// Update poly and hotspot for the starting frame.
-		var curanimframe = this.cur_animation.frames[this.cur_frame];
-		this.collision_poly.set_pts(curanimframe.poly_pts);
-		this.hotspotX = curanimframe.hotspotX;
-		this.hotspotY = curanimframe.hotspotY;
-		
-		this.animForwards = (this.cur_animation.speed >= 0);
-		this.cur_anim_speed = Math.abs(this.cur_animation.speed);
-		this.cur_anim_repeatto = this.cur_animation.repeatto;
-		
-		// Tick this object to change animation frame, but never tick single-animation, single-frame objects.
-		// Also don't tick zero speed animations until the speed or animation is changed, which saves ticking
-		// on tile sprites.
-		if (!(this.type.animations.length === 1 && this.type.animations[0].frames.length === 1) && this.cur_anim_speed !== 0)
-		{
-			this.runtime.tickMe(this);
-			this.isTicking = true;
-		}
-		
-		if (this.recycled)
-			this.animTimer.reset();
-		else
-			this.animTimer = new cr.KahanAdder();
-		
-		this.frameStart = this.getNowTime();
-		this.animPlaying = true;
-		this.animRepeats = 0;
-		this.animTriggerName = "";
-		
-		this.changeAnimName = "";
-		this.changeAnimFrom = 0;
-		this.changeAnimFrame = -1;
-		
-		// Ensure type has textures loaded
-		this.type.loadTextures();
-		
-		// Iterate all animations and frames ensuring WebGL textures are loaded and sizes are set
-		var i, leni, j, lenj;
-		var anim, frame, uv, maintex;
-		
-		for (i = 0, leni = this.type.animations.length; i < leni; i++)
-		{
-			anim = this.type.animations[i];
-			
-			for (j = 0, lenj = anim.frames.length; j < lenj; j++)
-			{
-				frame = anim.frames[j];
-				
-				// If size is zero, image is not on a sprite sheet.  Determine size now.
-				if (frame.width === 0)
-				{
-					frame.width = frame.texture_img.width;
-					frame.height = frame.texture_img.height;
-				}
-				
-				// If frame is spritesheeted update its uv coords
-				if (frame.spritesheeted)
-				{
-					maintex = frame.texture_img;
-					uv = frame.sheetTex;
-					uv.left = frame.offx / maintex.width;
-					uv.top = frame.offy / maintex.height;
-					uv.right = (frame.offx + frame.width) / maintex.width;
-					uv.bottom = (frame.offy + frame.height) / maintex.height;
-
-					// Check if frame is in fact a complete-frame spritesheet
-					if (frame.offx === 0 && frame.offy === 0 && frame.width === maintex.width && frame.height === maintex.height)
-					{
-						frame.spritesheeted = false;
-					}
-				}
-			}
-		}
-		
-		this.curFrame = this.cur_animation.frames[this.cur_frame];
-		this.curWebGLTexture = this.curFrame.webGL_texture;
-	};
-	
-	instanceProto.saveToJSON = function ()
-	{
-		var o = {
-			"a": this.cur_animation.sid,
-			"f": this.cur_frame,
-			"cas": this.cur_anim_speed,
-			"fs": this.frameStart,
-			"ar": this.animRepeats,
-			"at": this.animTimer.sum,
-			"rt": this.cur_anim_repeatto
-		};
-		
-		if (!this.animPlaying)
-			o["ap"] = this.animPlaying;
-			
-		if (!this.animForwards)
-			o["af"] = this.animForwards;
-		
-		return o;
-	};
-	
-	instanceProto.loadFromJSON = function (o)
-	{
-		var anim = this.getAnimationBySid(o["a"]);
-		
-		if (anim)
-			this.cur_animation = anim;
-		
-		this.cur_frame = o["f"];
-		
-		if (this.cur_frame < 0)
-			this.cur_frame = 0;
-		if (this.cur_frame >= this.cur_animation.frames.length)
-			this.cur_frame = this.cur_animation.frames.length - 1;
-		
-		this.cur_anim_speed = o["cas"];
-		this.frameStart = o["fs"];
-		this.animRepeats = o["ar"];
-		this.animTimer.reset();
-		this.animTimer.sum = o["at"];
-		this.animPlaying = o.hasOwnProperty("ap") ? o["ap"] : true;
-		this.animForwards = o.hasOwnProperty("af") ? o["af"] : true;
-		
-		if (o.hasOwnProperty("rt"))
-			this.cur_anim_repeatto = o["rt"];
-		else
-			this.cur_anim_repeatto = this.cur_animation.repeatto;
-			
-		this.curFrame = this.cur_animation.frames[this.cur_frame];
-		this.curWebGLTexture = this.curFrame.webGL_texture;
-		this.collision_poly.set_pts(this.curFrame.poly_pts);
-		this.hotspotX = this.curFrame.hotspotX;
-		this.hotspotY = this.curFrame.hotspotY;
-	};
-	
-	instanceProto.animationFinish = function (reverse)
-	{
-		// stop
-		this.cur_frame = reverse ? 0 : this.cur_animation.frames.length - 1;
-		this.animPlaying = false;
-		
-		// trigger finish events
-		this.animTriggerName = this.cur_animation.name;
-		
-		this.inAnimTrigger = true;
-		this.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnAnyAnimFinished, this);
-		this.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnAnimFinished, this);
-		this.inAnimTrigger = false;
-			
-		this.animRepeats = 0;
-	};
-	
-	instanceProto.getNowTime = function()
-	{
-		return this.animTimer.sum;
-	};
-	
-	instanceProto.tick = function()
-	{
-		this.animTimer.add(this.runtime.getDt(this));
-		
-		// Change any animation or frame that was queued
-		if (this.changeAnimName.length)
-			this.doChangeAnim();
-		if (this.changeAnimFrame >= 0)
-			this.doChangeAnimFrame();
-		
-		var now = this.getNowTime();
-		var cur_animation = this.cur_animation;
-		var prev_frame = cur_animation.frames[this.cur_frame];
-		var next_frame;
-		var cur_frame_time = prev_frame.duration / this.cur_anim_speed;
-		
-		if (this.animPlaying && now >= this.frameStart + cur_frame_time)
-		{			
-			// Next frame
-			if (this.animForwards)
-			{
-				this.cur_frame++;
-				//log("Advancing animation frame forwards");
-			}
-			else
-			{
-				this.cur_frame--;
-				//log("Advancing animation frame backwards");
-			}
-				
-			this.frameStart += cur_frame_time;
-			
-			// Reached end of frames
-			if (this.cur_frame >= cur_animation.frames.length)
-			{
-				//log("At end of frames");
-				
-				if (cur_animation.pingpong)
-				{
-					this.animForwards = false;
-					this.cur_frame = cur_animation.frames.length - 2;
-					//log("Ping pong looping from end");
-				}
-				// Looping: wind back to repeat-to frame
-				else if (cur_animation.loop)
-				{
-					this.cur_frame = this.cur_anim_repeatto;
-				}
-				else
-				{					
-					this.animRepeats++;
-					
-					if (this.animRepeats >= cur_animation.repeatcount)
-					{
-						//log("Number of repeats reached; ending animation");
-						
-						this.animationFinish(false);
-					}
-					else
-					{
-						//log("Repeating");
-						this.cur_frame = this.cur_anim_repeatto;
-					}
-				}
-			}
-			// Ping-ponged back to start
-			if (this.cur_frame < 0)
-			{
-				if (cur_animation.pingpong)
-				{
-					this.cur_frame = 1;
-					this.animForwards = true;
-					//log("Ping ponging back forwards");
-					
-					if (!cur_animation.loop)
-					{
-						this.animRepeats++;
-							
-						if (this.animRepeats >= cur_animation.repeatcount)
-						{
-							//log("Number of repeats reached; ending animation");
-							
-							this.animationFinish(true);
-						}
-					}
-				}
-				// animation running backwards
-				else
-				{
-					if (cur_animation.loop)
-					{
-						this.cur_frame = this.cur_anim_repeatto;
-					}
-					else
-					{
-						this.animRepeats++;
-						
-						// Reached number of repeats
-						if (this.animRepeats >= cur_animation.repeatcount)
-						{
-							//log("Number of repeats reached; ending animation");
-							
-							this.animationFinish(true);
-						}
-						else
-						{
-							//log("Repeating");
-							this.cur_frame = this.cur_anim_repeatto;
-						}
-					}
-				}
-			}
-			
-			// Don't go out of bounds
-			if (this.cur_frame < 0)
-				this.cur_frame = 0;
-			else if (this.cur_frame >= cur_animation.frames.length)
-				this.cur_frame = cur_animation.frames.length - 1;
-				
-			// If frameStart is still more than a whole frame away, we must've fallen behind.  Instead of
-			// going catch-up (cycling one frame per tick), reset the frame timer to now.
-			if (now > this.frameStart + (cur_animation.frames[this.cur_frame].duration / this.cur_anim_speed))
-			{
-				//log("Animation can't keep up, resetting timer");
-				this.frameStart = now;
-			}
-				
-			next_frame = cur_animation.frames[this.cur_frame];
-			this.OnFrameChanged(prev_frame, next_frame);
-				
-			this.runtime.redraw = true;
-		}
-	};
-	
-	instanceProto.getAnimationByName = function (name_)
-	{
-		var i, len, a;
-		for (i = 0, len = this.type.animations.length; i < len; i++)
-		{
-			a = this.type.animations[i];
-			
-			if (cr.equals_nocase(a.name, name_))
-				return a;
-		}
-		
-		return null;
-	};
-	
-	instanceProto.getAnimationBySid = function (sid_)
-	{
-		var i, len, a;
-		for (i = 0, len = this.type.animations.length; i < len; i++)
-		{
-			a = this.type.animations[i];
-			
-			if (a.sid === sid_)
-				return a;
-		}
-		
-		return null;
-	};
-	
-	instanceProto.doChangeAnim = function ()
-	{
-		var prev_frame = this.cur_animation.frames[this.cur_frame];
-		
-		// Find the animation by name
-		var anim = this.getAnimationByName(this.changeAnimName);
-		
-		this.changeAnimName = "";
-		
-		// couldn't find by name
-		if (!anim)
-			return;
-			
-		// don't change if setting same animation and the animation is already playing
-		if (cr.equals_nocase(anim.name, this.cur_animation.name) && this.animPlaying)
-			return;
-			
-		this.cur_animation = anim;
-		this.animForwards = (anim.speed >= 0);
-		this.cur_anim_speed = Math.abs(anim.speed);
-		this.cur_anim_repeatto = anim.repeatto;
-		
-		if (this.cur_frame < 0)
-			this.cur_frame = 0;
-		if (this.cur_frame >= this.cur_animation.frames.length)
-			this.cur_frame = this.cur_animation.frames.length - 1;
-			
-		// from beginning
-		if (this.changeAnimFrom === 1)
-			this.cur_frame = 0;
-			
-		this.animPlaying = true;
-		this.frameStart = this.getNowTime();
-		
-		this.OnFrameChanged(prev_frame, this.cur_animation.frames[this.cur_frame]);
-		
-		this.runtime.redraw = true;
-	};
-	
-	instanceProto.doChangeAnimFrame = function ()
-	{
-		var prev_frame = this.cur_animation.frames[this.cur_frame];
-		var prev_frame_number = this.cur_frame;
-		
-		this.cur_frame = cr.floor(this.changeAnimFrame);
-		
-		if (this.cur_frame < 0)
-			this.cur_frame = 0;
-		if (this.cur_frame >= this.cur_animation.frames.length)
-			this.cur_frame = this.cur_animation.frames.length - 1;
-			
-		if (prev_frame_number !== this.cur_frame)
-		{
-			this.OnFrameChanged(prev_frame, this.cur_animation.frames[this.cur_frame]);
-			this.frameStart = this.getNowTime();
-			this.runtime.redraw = true;
-		}
-		
-		this.changeAnimFrame = -1;
-	};
-	
-	instanceProto.OnFrameChanged = function (prev_frame, next_frame)
-	{
-		// Has the frame size changed?  Resize the object proportionally
-		var oldw = prev_frame.width;
-		var oldh = prev_frame.height;
-		var neww = next_frame.width;
-		var newh = next_frame.height;
-		
-		if (oldw != neww)
-			this.width *= (neww / oldw);
-		if (oldh != newh)
-			this.height *= (newh / oldh);
-			
-		// Update hotspot, collision poly and bounding box
-		this.hotspotX = next_frame.hotspotX;
-		this.hotspotY = next_frame.hotspotY;
-		this.collision_poly.set_pts(next_frame.poly_pts);
-		this.set_bbox_changed();
-		
-		// Update webGL texture if any
-		this.curFrame = next_frame;
-		this.curWebGLTexture = next_frame.webGL_texture;
-		
-		// Notify behaviors
-		var i, len, b;
-		for (i = 0, len = this.behavior_insts.length; i < len; i++)
-		{
-			b = this.behavior_insts[i];
-			
-			if (b.onSpriteFrameChanged)
-				b.onSpriteFrameChanged(prev_frame, next_frame);
-		}
-		
-		// Trigger 'on frame changed'
-		this.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnFrameChanged, this);
-	};
-
-	instanceProto.draw = function(ctx)
-	{
-		ctx.globalAlpha = this.opacity;
-			
-		// The current animation frame to draw
-		var cur_frame = this.curFrame;
-		var spritesheeted = cur_frame.spritesheeted;
-		var cur_image = cur_frame.texture_img;
-		
-		var myx = this.x;
-		var myy = this.y;
-		var w = this.width;
-		var h = this.height;
-		
-		// Object not rotated: can draw without transformation.
-		if (this.angle === 0 && w >= 0 && h >= 0)
-		{
-			myx -= this.hotspotX * w;
-			myy -= this.hotspotY * h;
-			
-			if (this.runtime.pixel_rounding)
-			{
-				myx = Math.round(myx);
-				myy = Math.round(myy);
-			}
-			
-			if (spritesheeted)
-			{
-				ctx.drawImage(cur_image, cur_frame.offx, cur_frame.offy, cur_frame.width, cur_frame.height,
-										 myx, myy, w, h);
-			}
-			else
-			{
-				ctx.drawImage(cur_image, myx, myy, w, h);
-			}
-		}
-		else
-		{
-			// Only pixel round the x/y position, otherwise objects don't rotate smoothly
-			if (this.runtime.pixel_rounding)
-			{
-				myx = Math.round(myx);
-				myy = Math.round(myy);
-			}
-			
-			// Angle applied; we need to transform the canvas.  Save state.
-			ctx.save();
-			
-			var widthfactor = w > 0 ? 1 : -1;
-			var heightfactor = h > 0 ? 1 : -1;
-			
-			// Translate to object's position, then rotate by its angle.
-			ctx.translate(myx, myy);
-			
-			if (widthfactor !== 1 || heightfactor !== 1)
-				ctx.scale(widthfactor, heightfactor);
-			
-			ctx.rotate(this.angle * widthfactor * heightfactor);
-			
-			var drawx = 0 - (this.hotspotX * cr.abs(w))
-			var drawy = 0 - (this.hotspotY * cr.abs(h));
-			
-			// Draw the object; canvas origin is at hot spot.
-			if (spritesheeted)
-			{
-				ctx.drawImage(cur_image, cur_frame.offx, cur_frame.offy, cur_frame.width, cur_frame.height,
-										 drawx, drawy, cr.abs(w), cr.abs(h));
-			}
-			else
-			{
-				ctx.drawImage(cur_image, drawx, drawy, cr.abs(w), cr.abs(h));
-			}
-			
-			// Restore previous state.
-			ctx.restore();
-		}
-			
-		//////////////////////////////////////////
-		// Draw collision poly (for debug)
-		/*
-		ctx.strokeStyle = "#f00";
-		ctx.lineWidth = 3;
-		ctx.beginPath();
-		this.collision_poly.cache_poly(this.width, this.height, this.angle);
-		var i, len, ax, ay, bx, by;
-		for (i = 0, len = this.collision_poly.pts_count; i < len; i++)
-		{
-			ax = this.collision_poly.pts_cache[i*2] + this.x;
-			ay = this.collision_poly.pts_cache[i*2+1] + this.y;
-			bx = this.collision_poly.pts_cache[((i+1)%len)*2] + this.x;
-			by = this.collision_poly.pts_cache[((i+1)%len)*2+1] + this.y;
-			
-			ctx.moveTo(ax, ay);
-			ctx.lineTo(bx, by);
-		}
-		
-		ctx.stroke();
-		ctx.closePath();
-		*/
-		// Draw physics polys (for debug)
-		/*
-		if (this.behavior_insts.length >= 1 && this.behavior_insts[0].draw)
-		{
-			this.behavior_insts[0].draw(ctx);
-		}
-		*/
-		//////////////////////////////////////////
-	};
-	
-	instanceProto.drawGL_earlyZPass = function(glw)
-	{
-		this.drawGL(glw);
-	};
-	
-	instanceProto.drawGL = function(glw)
-	{
-		glw.setTexture(this.curWebGLTexture);
-		glw.setOpacity(this.opacity);
-		var cur_frame = this.curFrame;
-		
-		var q = this.bquad;
-		
-		if (this.runtime.pixel_rounding)
-		{
-			var ox = Math.round(this.x) - this.x;
-			var oy = Math.round(this.y) - this.y;
-			
-			if (cur_frame.spritesheeted)
-				glw.quadTex(q.tlx + ox, q.tly + oy, q.trx + ox, q.try_ + oy, q.brx + ox, q.bry + oy, q.blx + ox, q.bly + oy, cur_frame.sheetTex);
-			else
-				glw.quad(q.tlx + ox, q.tly + oy, q.trx + ox, q.try_ + oy, q.brx + ox, q.bry + oy, q.blx + ox, q.bly + oy);
-		}
-		else
-		{
-			if (cur_frame.spritesheeted)
-				glw.quadTex(q.tlx, q.tly, q.trx, q.try_, q.brx, q.bry, q.blx, q.bly, cur_frame.sheetTex);
-			else
-				glw.quad(q.tlx, q.tly, q.trx, q.try_, q.brx, q.bry, q.blx, q.bly);
-		}
-	};
-	
-	instanceProto.getImagePointIndexByName = function(name_)
-	{
-		var cur_frame = this.curFrame;
-		
-		var i, len;
-		for (i = 0, len = cur_frame.image_points.length; i < len; i++)
-		{
-			if (cr.equals_nocase(name_, cur_frame.image_points[i][0]))
-				return i;
-		}
-		
-		return -1;
-	};
-	
-	instanceProto.getImagePoint = function(imgpt, getX)
-	{
-		var cur_frame = this.curFrame;
-		var image_points = cur_frame.image_points;
-		var index;
-		
-		if (cr.is_string(imgpt))
-			index = this.getImagePointIndexByName(imgpt);
-		else
-			index = imgpt - 1;	// 0 is origin
-			
-		index = cr.floor(index);
-		if (index < 0 || index >= image_points.length)
-			return getX ? this.x : this.y;	// return origin
-			
-		// get position scaled and relative to origin in pixels
-		var x = (image_points[index][1] - cur_frame.hotspotX) * this.width;
-		var y = image_points[index][2];
-		
-		y = (y - cur_frame.hotspotY) * this.height;
-		
-		// rotate by object angle
-		var cosa = Math.cos(this.angle);
-		var sina = Math.sin(this.angle);
-		var x_temp = (x * cosa) - (y * sina);
-		y = (y * cosa) + (x * sina);
-		x = x_temp;
-		x += this.x;
-		y += this.y;
-		return getX ? x : y;
-	};
-	
-
-	//////////////////////////////////////
-	// Conditions
-	function Cnds() {};
-
-	// For the collision memory in 'On collision'.
-	var arrCache = [];
-	
-	function allocArr()
-	{
-		if (arrCache.length)
-			return arrCache.pop();
-		else
-			return [0, 0, 0];
-	};
-	
-	function freeArr(a)
-	{
-		a[0] = 0;
-		a[1] = 0;
-		a[2] = 0;
-		arrCache.push(a);
-	};
-	
-	function makeCollKey(a, b)
-	{
-		// comma separated string with lowest value first
-		if (a < b)
-			return "" + a + "," + b;
-		else
-			return "" + b + "," + a;
-	};
-	
-	function collmemory_add(collmemory, a, b, tickcount)
-	{
-		var a_uid = a.uid;
-		var b_uid = b.uid;
-
-		var key = makeCollKey(a_uid, b_uid);
-		
-		if (collmemory.hasOwnProperty(key))
-		{
-			// added already; just update tickcount
-			collmemory[key][2] = tickcount;
-			return;
-		}
-		
-		var arr = allocArr();
-		arr[0] = a_uid;
-		arr[1] = b_uid;
-		arr[2] = tickcount;
-		collmemory[key] = arr;
-	};
-	
-	function collmemory_remove(collmemory, a, b)
-	{
-		var key = makeCollKey(a.uid, b.uid);
-		
-		if (collmemory.hasOwnProperty(key))
-		{
-			freeArr(collmemory[key]);
-			delete collmemory[key];
-		}
-	};
-	
-	function collmemory_removeInstance(collmemory, inst)
-	{
-		var uid = inst.uid;
-		var p, entry;
-		for (p in collmemory)
-		{
-			if (collmemory.hasOwnProperty(p))
-			{
-				entry = collmemory[p];
-				
-				// Referenced in either UID: must be removed
-				if (entry[0] === uid || entry[1] === uid)
-				{
-					freeArr(collmemory[p]);
-					delete collmemory[p];
-				}
-			}
-		}
-	};
-	
-	var last_coll_tickcount = -2;
-	
-	function collmemory_has(collmemory, a, b)
-	{
-		var key = makeCollKey(a.uid, b.uid);
-		
-		if (collmemory.hasOwnProperty(key))
-		{
-			last_coll_tickcount = collmemory[key][2];
-			return true;
-		}
-		else
-		{
-			last_coll_tickcount = -2;
-			return false;
-		}
-	};
-	
-	var candidates1 = [];
-	
-	Cnds.prototype.OnCollision = function (rtype)
-	{	
-		if (!rtype)
-			return false;
-			
-		var runtime = this.runtime;
-			
-		// Static condition: perform picking manually.
-		// Get the current condition.  This is like the 'is overlapping' condition
-		// but with a built in 'trigger once' for the l instances.
-		var cnd = runtime.getCurrentCondition();
-		var ltype = cnd.type;
-		var collmemory = null;
-		
-		// Create the collision memory, which remembers pairs of collisions that
-		// are already overlapping
-		if (cnd.extra["collmemory"])
-		{
-			collmemory = cnd.extra["collmemory"];
-		}
-		else
-		{
-			collmemory = {};
-			cnd.extra["collmemory"] = collmemory;
-		}
-		
-		// Once per condition, add a destroy callback to remove destroyed instances from collision memory
-		// which helps avoid a memory leak. Note the spriteCreatedDestroyCallback property is not saved
-		// to savegames, so loading a savegame will still cause a callback to be created, as intended.
-		if (!cnd.extra["spriteCreatedDestroyCallback"])
-		{
-			cnd.extra["spriteCreatedDestroyCallback"] = true;
-			
-			runtime.addDestroyCallback(function(inst) {
-				collmemory_removeInstance(cnd.extra["collmemory"], inst);
-			});
-		}
-		
-		// Get the currently active SOLs for both objects involved in the overlap test
-		var lsol = ltype.getCurrentSol();
-		var rsol = rtype.getCurrentSol();
-		var linstances = lsol.getObjects();
-		var rinstances;
-		var registeredInstances;
-		
-		// Iterate each combination of instances
-		var l, linst, r, rinst;
-		var curlsol, currsol;
-		
-		var tickcount = this.runtime.tickcount;
-		var lasttickcount = tickcount - 1;
-		var exists, run;
-		
-		var current_event = runtime.getCurrentEventStack().current_event;
-		var orblock = current_event.orblock;
-		
-		// Note: don't cache lengths of linstances or rinstances. They can change if objects get destroyed in the event
-		// retriggering.
-		for (l = 0; l < linstances.length; l++)
-		{
-			linst = linstances[l];
-			
-			if (rsol.select_all)
-			{
-				linst.update_bbox();
-				this.runtime.getCollisionCandidates(linst.layer, rtype, linst.bbox, candidates1);
-				rinstances = candidates1;
-				
-				// NOTE: some behaviors like Platform can register a collision, then push the instance back in to a different
-				// collision cell. This will cause the instance that registered a collision to not be in the collision
-				// candidates, and therefore fail to detect a collision. To avoid this, specifically search for a list of all
-				// instances that have registered a collision with linst, and ensure they are in the candidates.
-				this.runtime.addRegisteredCollisionCandidates(linst, rtype, rinstances);
-			}
-			else
-			{
-				rinstances = rsol.getObjects();
-			}
-			
-			for (r = 0; r < rinstances.length; r++)
-			{
-				rinst = rinstances[r];
-				
-				if (runtime.testOverlap(linst, rinst) || runtime.checkRegisteredCollision(linst, rinst))
-				{
-					exists = collmemory_has(collmemory, linst, rinst);
-					run = (!exists || (last_coll_tickcount < lasttickcount));
-					
-					// objects are still touching so update the tickcount
-					collmemory_add(collmemory, linst, rinst, tickcount);
-					
-					if (run)
-					{						
-						runtime.pushCopySol(current_event.solModifiers);
-						curlsol = ltype.getCurrentSol();
-						currsol = rtype.getCurrentSol();
-						curlsol.select_all = false;
-						currsol.select_all = false;
-						
-						// If ltype === rtype, it's the same object (e.g. Sprite collides with Sprite)
-						// In which case, pick both instances
-						if (ltype === rtype)
-						{
-							curlsol.instances.length = 2;	// just use lsol, is same reference as rsol
-							curlsol.instances[0] = linst;
-							curlsol.instances[1] = rinst;
-							ltype.applySolToContainer();
-						}
-						else
-						{
-							// Pick each instance in its respective SOL
-							curlsol.instances.length = 1;
-							currsol.instances.length = 1;
-							curlsol.instances[0] = linst;
-							currsol.instances[0] = rinst;
-							ltype.applySolToContainer();
-							rtype.applySolToContainer();
-						}
-						
-						current_event.retrigger();
-						runtime.popSol(current_event.solModifiers);
-					}
-				}
-				else
-				{
-					// Pair not overlapping: ensure any record removed (mainly to save memory)
-					collmemory_remove(collmemory, linst, rinst);
-				}
-			}
-			
-			cr.clearArray(candidates1);
-		}
-		
-		// We've aleady run the event by now.
-		return false;
-	};
-	
-	var rpicktype = null;
-	var rtopick = new cr.ObjectSet();
-	var needscollisionfinish = false;
-	
-	var candidates2 = [];
-	var temp_bbox = new cr.rect(0, 0, 0, 0);
-	
-	function DoOverlapCondition(rtype, offx, offy)
-	{
-		if (!rtype)
-			return false;
-			
-		var do_offset = (offx !== 0 || offy !== 0);
-		var oldx, oldy, ret = false, r, lenr, rinst;
-		var cnd = this.runtime.getCurrentCondition();
-		var ltype = cnd.type;
-		var inverted = cnd.inverted;
-		var rsol = rtype.getCurrentSol();
-		var orblock = this.runtime.getCurrentEventStack().current_event.orblock;
-		var rinstances;
-		
-		if (rsol.select_all)
-		{
-			this.update_bbox();
-			
-			// Make sure queried box is offset the same as the collision offset so we look in
-			// the right cells
-			temp_bbox.copy(this.bbox);
-			temp_bbox.offset(offx, offy);
-			this.runtime.getCollisionCandidates(this.layer, rtype, temp_bbox, candidates2);
-			rinstances = candidates2;
-		}
-		else if (orblock)
-		{
-			// Normally the instances to process are in the else_instances array. However if a parent normal block
-			// already picked from rtype, it will have select_all off, no else_instances, and just some content
-			// in 'instances'. Look for this case in the first condition only.
-			if (this.runtime.isCurrentConditionFirst() && !rsol.else_instances.length && rsol.instances.length)
-				rinstances = rsol.instances;
-			else
-				rinstances = rsol.else_instances;
-		}
-		else
-		{
-			rinstances = rsol.instances;
-		}
-		
-		rpicktype = rtype;
-		needscollisionfinish = (ltype !== rtype && !inverted);
-		
-		if (do_offset)
-		{
-			oldx = this.x;
-			oldy = this.y;
-			this.x += offx;
-			this.y += offy;
-			this.set_bbox_changed();
-		}
-		
-		for (r = 0, lenr = rinstances.length; r < lenr; r++)
-		{
-			rinst = rinstances[r];
-			
-			// objects overlap: true for this instance, ensure both are picked
-			// (if ltype and rtype are same, e.g. "Sprite overlaps Sprite", don't pick the other instance,
-			// it will be picked when it gets iterated to itself)
-			if (this.runtime.testOverlap(this, rinst))
-			{
-				ret = true;
-				
-				// Inverted condition: just bail out now, don't pick right hand instance -
-				// also note we still return true since the condition invert flag makes that false
-				if (inverted)
-					break;
-					
-				if (ltype !== rtype)
-					rtopick.add(rinst);
-			}
-		}
-		
-		if (do_offset)
-		{
-			this.x = oldx;
-			this.y = oldy;
-			this.set_bbox_changed();
-		}
-		
-		cr.clearArray(candidates2);
-		return ret;
-	};
-	
-	typeProto.finish = function (do_pick)
-	{
-		if (!needscollisionfinish)
-			return;
-		
-		if (do_pick)
-		{
-			var orblock = this.runtime.getCurrentEventStack().current_event.orblock;
-			var sol = rpicktype.getCurrentSol();
-			var topick = rtopick.valuesRef();
-			var i, len, inst;
-			
-			if (sol.select_all)
-			{
-				// All selected: filter down to just those in topick
-				sol.select_all = false;
-				cr.clearArray(sol.instances);
-			
-				for (i = 0, len = topick.length; i < len; ++i)
-				{
-					sol.instances[i] = topick[i];
-				}
-				
-				// In OR blocks, else_instances must also be filled with objects not in topick
-				if (orblock)
-				{
-					cr.clearArray(sol.else_instances);
-					
-					for (i = 0, len = rpicktype.instances.length; i < len; ++i)
-					{
-						inst = rpicktype.instances[i];
-						
-						if (!rtopick.contains(inst))
-							sol.else_instances.push(inst);
-					}
-				}
-			}
-			else
-			{
-				if (orblock)
-				{
-					var initsize = sol.instances.length;
-				
-					for (i = 0, len = topick.length; i < len; ++i)
-					{
-						sol.instances[initsize + i] = topick[i];
-						cr.arrayFindRemove(sol.else_instances, topick[i]);
-					}
-				}
-				else
-				{
-					cr.shallowAssignArray(sol.instances, topick);
-				}
-			}
-			
-			rpicktype.applySolToContainer();
-		}
-		
-		rtopick.clear();
-		needscollisionfinish = false;
-	};
-	
-	Cnds.prototype.IsOverlapping = function (rtype)
-	{
-		return DoOverlapCondition.call(this, rtype, 0, 0);
-	};
-	
-	Cnds.prototype.IsOverlappingOffset = function (rtype, offx, offy)
-	{
-		return DoOverlapCondition.call(this, rtype, offx, offy);
-	};
-	
-	Cnds.prototype.IsAnimPlaying = function (animname)
-	{
-		// If awaiting a change of animation to really happen next tick, compare to that now
-		if (this.changeAnimName.length)
-			return cr.equals_nocase(this.changeAnimName, animname);
-		else
-			return cr.equals_nocase(this.cur_animation.name, animname);
-	};
-	
-	Cnds.prototype.CompareFrame = function (cmp, framenum)
-	{
-		return cr.do_cmp(this.cur_frame, cmp, framenum);
-	};
-	
-	Cnds.prototype.CompareAnimSpeed = function (cmp, x)
-	{
-		var s = (this.animForwards ? this.cur_anim_speed : -this.cur_anim_speed);
-		return cr.do_cmp(s, cmp, x);
-	};
-	
-	Cnds.prototype.OnAnimFinished = function (animname)
-	{
-		return cr.equals_nocase(this.animTriggerName, animname);
-	};
-	
-	Cnds.prototype.OnAnyAnimFinished = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.OnFrameChanged = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.IsMirrored = function ()
-	{
-		return this.width < 0;
-	};
-	
-	Cnds.prototype.IsFlipped = function ()
-	{
-		return this.height < 0;
-	};
-	
-	Cnds.prototype.OnURLLoaded = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.IsCollisionEnabled = function ()
-	{
-		return this.collisionsEnabled;
-	};
-	
-	pluginProto.cnds = new Cnds();
-
-	//////////////////////////////////////
-	// Actions
-	function Acts() {};
-
-	Acts.prototype.Spawn = function (obj, layer, imgpt)
-	{
-		if (!obj || !layer)
-			return;
-			
-		var inst = this.runtime.createInstance(obj, layer, this.getImagePoint(imgpt, true), this.getImagePoint(imgpt, false));
-		
-		if (!inst)
-			return;
-		
-		if (typeof inst.angle !== "undefined")
-		{
-			inst.angle = this.angle;
-			inst.set_bbox_changed();
-		}
-		
-		this.runtime.isInOnDestroy++;
-		
-		var i, len, s;
-		this.runtime.trigger(Object.getPrototypeOf(obj.plugin).cnds.OnCreated, inst);
-		
-		if (inst.is_contained)
-		{
-			for (i = 0, len = inst.siblings.length; i < len; i++)
-			{
-				s = inst.siblings[i];
-				this.runtime.trigger(Object.getPrototypeOf(s.type.plugin).cnds.OnCreated, s);
-			}
-		}
-		
-		this.runtime.isInOnDestroy--;
-		
-		// This action repeats for all picked instances.  We want to set the current
-		// selection to all instances that are created by this action.  Therefore,
-		// reset the SOL only for the first instance.  Determine this by the last tick count run.
-		// HOWEVER loops and the 'on collision' event re-triggers events, re-running the action
-		// with the same tickcount.  To get around this, triggers and re-triggering events increment
-		// the 'execcount', so each execution of the action has a different execcount even if not
-		// the same tickcount.
-		var cur_act = this.runtime.getCurrentAction();
-		var reset_sol = false;
-		
-		if (cr.is_undefined(cur_act.extra["Spawn_LastExec"]) || cur_act.extra["Spawn_LastExec"] < this.runtime.execcount)
-		{
-			reset_sol = true;
-			cur_act.extra["Spawn_LastExec"] = this.runtime.execcount;
-		}
-		
-		var sol;
-		
-		// Pick just this instance, as long as it's a different type (else the SOL instances array is
-		// potentially modified while in use)
-		if (obj != this.type)
-		{
-			sol = obj.getCurrentSol();
-			sol.select_all = false;
-			
-			if (reset_sol)
-			{
-				cr.clearArray(sol.instances);
-				sol.instances[0] = inst;
-			}
-			else
-				sol.instances.push(inst);
-				
-			// Siblings aren't in instance lists yet, pick them manually
-			if (inst.is_contained)
-			{
-				for (i = 0, len = inst.siblings.length; i < len; i++)
-				{
-					s = inst.siblings[i];
-					sol = s.type.getCurrentSol();
-					sol.select_all = false;
-					
-					if (reset_sol)
-					{
-						cr.clearArray(sol.instances);
-						sol.instances[0] = s;
-					}
-					else
-						sol.instances.push(s);
-				}
-			}
-		}
-	};
-	
-	Acts.prototype.SetEffect = function (effect)
-	{
-		this.blend_mode = effect;
-		this.compositeOp = cr.effectToCompositeOp(effect);
-		cr.setGLBlend(this, effect, this.runtime.gl);
-		this.runtime.redraw = true;
-	};
-	
-	Acts.prototype.StopAnim = function ()
-	{
-		this.animPlaying = false;
-		//log("Stopping animation");
-	};
-	
-	Acts.prototype.StartAnim = function (from)
-	{
-		this.animPlaying = true;
-		this.frameStart = this.getNowTime();
-		//log("Starting animation");
-		
-		// from beginning
-		if (from === 1 && this.cur_frame !== 0)
-		{
-			this.changeAnimFrame = 0;
-			
-			if (!this.inAnimTrigger)
-				this.doChangeAnimFrame();
-		}
-		
-		// start ticking if not already
-		if (!this.isTicking)
-		{
-			this.runtime.tickMe(this);
-			this.isTicking = true;
-		}
-	};
-	
-	Acts.prototype.SetAnim = function (animname, from)
-	{
-		this.changeAnimName = animname;
-		this.changeAnimFrom = from;
-		
-		// start ticking if not already
-		if (!this.isTicking)
-		{
-			this.runtime.tickMe(this);
-			this.isTicking = true;
-		}
-		
-		// not in trigger: apply immediately
-		if (!this.inAnimTrigger)
-			this.doChangeAnim();
-	};
-	
-	Acts.prototype.SetAnimFrame = function (framenumber)
-	{
-		this.changeAnimFrame = framenumber;
-		
-		// start ticking if not already
-		if (!this.isTicking)
-		{
-			this.runtime.tickMe(this);
-			this.isTicking = true;
-		}
-		
-		// not in trigger: apply immediately
-		if (!this.inAnimTrigger)
-			this.doChangeAnimFrame();
-	};
-	
-	Acts.prototype.SetAnimSpeed = function (s)
-	{
-		this.cur_anim_speed = cr.abs(s);
-		this.animForwards = (s >= 0);
-		
-		//this.frameStart = this.runtime.kahanTime.sum;
-		
-		// start ticking if not already
-		if (!this.isTicking)
-		{
-			this.runtime.tickMe(this);
-			this.isTicking = true;
-		}
-	};
-	
-	Acts.prototype.SetAnimRepeatToFrame = function (s)
-	{
-		s = Math.floor(s);
-		
-		if (s < 0)
-			s = 0;
-		if (s >= this.cur_animation.frames.length)
-			s = this.cur_animation.frames.length - 1;
-		
-		this.cur_anim_repeatto = s;
-	};
-	
-	Acts.prototype.SetMirrored = function (m)
-	{
-		var neww = cr.abs(this.width) * (m === 0 ? -1 : 1);
-		
-		if (this.width === neww)
-			return;
-			
-		this.width = neww;
-		this.set_bbox_changed();
-	};
-	
-	Acts.prototype.SetFlipped = function (f)
-	{
-		var newh = cr.abs(this.height) * (f === 0 ? -1 : 1);
-		
-		if (this.height === newh)
-			return;
-			
-		this.height = newh;
-		this.set_bbox_changed();
-	};
-	
-	Acts.prototype.SetScale = function (s)
-	{
-		var cur_frame = this.curFrame;
-		var mirror_factor = (this.width < 0 ? -1 : 1);
-		var flip_factor = (this.height < 0 ? -1 : 1);
-		var new_width = cur_frame.width * s * mirror_factor;
-		var new_height = cur_frame.height * s * flip_factor;
-		
-		if (this.width !== new_width || this.height !== new_height)
-		{
-			this.width = new_width;
-			this.height = new_height;
-			this.set_bbox_changed();
-		}
-	};
-	
-	Acts.prototype.LoadURL = function (url_, resize_, crossOrigin_)
-	{
-		var img = new Image();
-		var self = this;
-		var curFrame_ = this.curFrame;
-		
-		img.onload = function ()
-		{
-			// If this action was used on multiple instances, they will each try to create a
-			// separate image or texture, which is a waste of memory. So if the same image has
-			// already been loaded, ignore this callback.
-			if (curFrame_.texture_img.src === img.src)
-			{
-				// Still may need to switch to using the image's texture in WebGL renderer
-				if (self.runtime.glwrap && self.curFrame === curFrame_)
-					self.curWebGLTexture = curFrame_.webGL_texture;
-				
-				// Still may need to update object size
-				if (resize_ === 0)		// resize to image size
-				{
-					self.width = img.width;
-					self.height = img.height;
-					self.set_bbox_changed();
-				}
-				
-				// Still need to trigger 'On loaded'
-				self.runtime.redraw = true;
-				self.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnURLLoaded, self);
-			
-				return;
-			}
-			
-			curFrame_.texture_img = img;
-			curFrame_.offx = 0;
-			curFrame_.offy = 0;
-			curFrame_.width = img.width;
-			curFrame_.height = img.height;
-			curFrame_.spritesheeted = false;
-			curFrame_.datauri = "";
-			curFrame_.pixelformat = 0;	// reset to RGBA, since we don't know what type of image will have come in
-										// and it could be different to what the exporter set for the original image
-			
-			// WebGL renderer: need to create texture (canvas2D just draws with img directly)
-			if (self.runtime.glwrap)
-			{
-				if (curFrame_.webGL_texture)
-					self.runtime.glwrap.deleteTexture(curFrame_.webGL_texture);
-					
-				curFrame_.webGL_texture = self.runtime.glwrap.loadTexture(img, false, self.runtime.linearSampling);
-				
-				if (self.curFrame === curFrame_)
-					self.curWebGLTexture = curFrame_.webGL_texture;
-				
-				// Need to update other instance's curWebGLTexture
-				self.type.updateAllCurrentTexture();
-			}
-			
-			// Set size if necessary
-			if (resize_ === 0)		// resize to image size
-			{
-				self.width = img.width;
-				self.height = img.height;
-				self.set_bbox_changed();
-			}
-			
-			self.runtime.redraw = true;
-			self.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnURLLoaded, self);
-		};
-		
-		if (url_.substr(0, 5) !== "data:" && crossOrigin_ === 0)
-			img["crossOrigin"] = "anonymous";
-		
-		// use runtime function to work around WKWebView permissions
-		this.runtime.setImageSrc(img, url_);
-	};
-	
-	Acts.prototype.SetCollisions = function (set_)
-	{
-		if (this.collisionsEnabled === (set_ !== 0))
-			return;		// no change
-		
-		this.collisionsEnabled = (set_ !== 0);
-		
-		if (this.collisionsEnabled)
-			this.set_bbox_changed();		// needs to be added back to cells
-		else
-		{
-			// remove from any current cells and restore to uninitialised state
-			if (this.collcells.right >= this.collcells.left)
-				this.type.collision_grid.update(this, this.collcells, null);
-			
-			this.collcells.set(0, 0, -1, -1);
-		}
-	};
-	
-	pluginProto.acts = new Acts();
-	
-	//////////////////////////////////////
-	// Expressions
-	function Exps() {};
-	
-	Exps.prototype.AnimationFrame = function (ret)
-	{
-		ret.set_int(this.cur_frame);
-	};
-	
-	Exps.prototype.AnimationFrameCount = function (ret)
-	{
-		ret.set_int(this.cur_animation.frames.length);
-	};
-	
-	Exps.prototype.AnimationName = function (ret)
-	{
-		ret.set_string(this.cur_animation.name);
-	};
-	
-	Exps.prototype.AnimationSpeed = function (ret)
-	{
-		ret.set_float(this.animForwards ? this.cur_anim_speed : -this.cur_anim_speed);
-	};
-	
-	Exps.prototype.ImagePointX = function (ret, imgpt)
-	{
-		ret.set_float(this.getImagePoint(imgpt, true));
-	};
-	
-	Exps.prototype.ImagePointY = function (ret, imgpt)
-	{
-		ret.set_float(this.getImagePoint(imgpt, false));
-	};
-	
-	Exps.prototype.ImagePointCount = function (ret)
-	{
-		ret.set_int(this.curFrame.image_points.length);
-	};
-	
-	Exps.prototype.ImageWidth = function (ret)
-	{
-		ret.set_float(this.curFrame.width);
-	};
-	
-	Exps.prototype.ImageHeight = function (ret)
-	{
-		ret.set_float(this.curFrame.height);
-	};
-	
-	pluginProto.exps = new Exps();
-
-}());
-
-// Mouse
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Plugin class
-cr.plugins_.Mouse = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	var pluginProto = cr.plugins_.Mouse.prototype;
-		
-	/////////////////////////////////////
-	// Object type class
-	pluginProto.Type = function(plugin)
-	{
-		this.plugin = plugin;
-		this.runtime = plugin.runtime;
-	};
-
-	var typeProto = pluginProto.Type.prototype;
-
-	typeProto.onCreate = function()
-	{
-	};
-
-	/////////////////////////////////////
-	// Instance class
-	pluginProto.Instance = function(type)
-	{
-		this.type = type;
-		this.runtime = type.runtime;
-		
-		this.buttonMap = new Array(4);		// mouse down states
-		this.mouseXcanvas = 0;				// mouse position relative to canvas
-		this.mouseYcanvas = 0;
-		
-		this.triggerButton = 0;
-		this.triggerType = 0;
-		this.triggerDir = 0;
-		this.handled = false;
-	};
-
-	var instanceProto = pluginProto.Instance.prototype;
-
-	instanceProto.onCreate = function()
-	{
-		var self = this;
-		
-		// Bind mouse events.
-		document.addEventListener("mousemove", function(info) {
-			self.onMouseMove(info);
-		});
-		
-		document.addEventListener("mousedown", function(info) {
-			self.onMouseDown(info);
-		});
-		
-		document.addEventListener("mouseup", function(info) {
-			self.onMouseUp(info);
-		});
-		
-		document.addEventListener("dblclick", function(info) {
-			self.onDoubleClick(info);
-		});
-		
-		var wheelevent = function(info) {
-							self.onWheel(info);
-						};
-						
-		document.addEventListener("mousewheel", wheelevent, false);
-		document.addEventListener("DOMMouseScroll", wheelevent, false);
-	};
-	
-	instanceProto.onMouseMove = function(info)
-	{
-		this.mouseXcanvas = info.pageX - this.runtime.canvas.offsetLeft;
-		this.mouseYcanvas = info.pageY - this.runtime.canvas.offsetTop;
-	};
-	
-	instanceProto.mouseInGame = function ()
-	{
-		if (this.runtime.fullscreen_mode > 0)
-			return true;
-			
-		return this.mouseXcanvas >= 0 && this.mouseYcanvas >= 0
-		    && this.mouseXcanvas < this.runtime.width && this.mouseYcanvas < this.runtime.height;
-	};
-
-	instanceProto.onMouseDown = function(info)
-	{
-		// Ignore mousedowns outside the canvas
-		if (!this.mouseInGame())
-			return;
-		
-		// Update button state
-		this.buttonMap[info.which] = true;
-		
-		this.runtime.isInUserInputEvent = true;
-		
-		// Trigger OnAnyClick
-		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnAnyClick, this);
-		
-		// Trigger OnClick & OnObjectClicked
-		this.triggerButton = info.which - 1;	// 1-based
-		this.triggerType = 0;					// single click
-		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnClick, this);
-		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnObjectClicked, this);
-		
-		this.runtime.isInUserInputEvent = false;
-	};
-
-	instanceProto.onMouseUp = function(info)
-	{
-		// Ignore mouseup if didn't see a corresponding mousedown
-		if (!this.buttonMap[info.which])
-			return;
-		
-		if (this.runtime.had_a_click && !this.runtime.isMobile)
-			info.preventDefault();
-			
-		this.runtime.had_a_click = true;
-		
-		// Update button state
-		this.buttonMap[info.which] = false;
-		
-		this.runtime.isInUserInputEvent = true;
-		
-		// Trigger OnRelease
-		this.triggerButton = info.which - 1;	// 1-based
-		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnRelease, this);
-		
-		this.runtime.isInUserInputEvent = false;
-	};
-
-	instanceProto.onDoubleClick = function(info)
-	{
-		// Ignore doubleclicks outside the canvas
-		if (!this.mouseInGame())
-			return;
-			
-		info.preventDefault();
-		
-		this.runtime.isInUserInputEvent = true;
-		
-		// Trigger OnClick & OnObjectClicked
-		this.triggerButton = info.which - 1;	// 1-based
-		this.triggerType = 1;					// double click
-		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnClick, this);
-		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnObjectClicked, this);
-		
-		this.runtime.isInUserInputEvent = false;
-	};
-	
-	instanceProto.onWheel = function (info)
-	{
-		var delta = info.wheelDelta ? info.wheelDelta : info.detail ? -info.detail : 0;
-		
-		this.triggerDir = (delta < 0 ? 0 : 1);
-		this.handled = false;
-		
-		this.runtime.isInUserInputEvent = true;
-		
-		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnWheel, this);
-		
-		this.runtime.isInUserInputEvent = false;
-		
-		if (this.handled && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-	};
-	
-	instanceProto.onWindowBlur = function ()
-	{
-		// Fire "On button up" for any buttons held down, to prevent stuck buttons
-		var i, len;
-		for (i = 0, len = this.buttonMap.length; i < len; ++i)
-		{
-			// Not down
-			if (!this.buttonMap[i])
-				continue;
-			
-			// Update button state
-			this.buttonMap[i] = false;
-			
-			// Trigger OnRelease
-			this.triggerButton = i - 1;
-			this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnRelease, this);
-		}
-	};
-	
-	instanceProto.isMouseOverCanvas = function ()
-	{
-		return this.mouseXcanvas >= 0 && this.mouseYcanvas >= 0
-		    && this.mouseXcanvas < this.runtime.width && this.mouseYcanvas < this.runtime.height;
-	};
-	
-
-	//////////////////////////////////////
-	// Conditions
-	function Cnds() {};
-
-	Cnds.prototype.OnClick = function (button, type)
-	{
-		return button === this.triggerButton && type === this.triggerType;
-	};
-	
-	Cnds.prototype.OnAnyClick = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.IsButtonDown = function (button)
-	{
-		return this.buttonMap[button + 1];
-	};
-	
-	Cnds.prototype.OnRelease = function (button)
-	{
-		return button === this.triggerButton;
-	};
-	
-	Cnds.prototype.IsOverObject = function (obj)
-	{
-		if (!this.isMouseOverCanvas())
-			return;
-		
-		// We need to handle invert manually.  If inverted, turn invert off on the condition,
-		// and instead pass it to testAndSelectCanvasPointOverlap() which does SOL picking
-		// based on the invert status.
-		var cnd = this.runtime.getCurrentCondition();
-
-		var mx = this.mouseXcanvas;
-		var my = this.mouseYcanvas;
-		
-		return cr.xor(this.runtime.testAndSelectCanvasPointOverlap(obj, mx, my, cnd.inverted), cnd.inverted);
-	};
-	
-	Cnds.prototype.OnObjectClicked = function (button, type, obj)
-	{
-		if (button !== this.triggerButton || type !== this.triggerType)
-			return false;	// wrong click type
-		
-		if (!this.isMouseOverCanvas())
-			return;
-		
-		return this.runtime.testAndSelectCanvasPointOverlap(obj, this.mouseXcanvas, this.mouseYcanvas, false);
-	};
-	
-	Cnds.prototype.OnWheel = function (dir)
-	{
-		this.handled = true;
-		return dir === this.triggerDir;
-	};
-	
-	pluginProto.cnds = new Cnds();
-	
-	//////////////////////////////////////
-	// Actions
-	function Acts() {};
-	
-	// Either string or sprite animation frame of last set cursor, to skip redundant settings
-	var lastSetCursor = null;
-	
-	Acts.prototype.SetCursor = function (c)
-	{
-		var cursor_style = ["auto", "pointer", "text", "crosshair", "move", "help", "wait", "none"][c];
-		
-		if (lastSetCursor === cursor_style)
-			return;		// redundant
-		
-		lastSetCursor = cursor_style;
-		document.body.style.cursor = cursor_style;
-	};
-	
-	Acts.prototype.SetCursorSprite = function (obj)
-	{
-		if (this.runtime.isMobile || !obj)
-			return;
-			
-		var inst = obj.getFirstPicked();
-		
-		if (!inst || !inst.curFrame)
-			return;
-			
-		var frame = inst.curFrame;
-		
-		if (lastSetCursor === frame)
-			return;		// already set this frame
-		
-		lastSetCursor = frame;
-		var datauri = frame.getDataUri();
-		
-		var cursor_style = "url(" + datauri + ") " + Math.round(frame.hotspotX * frame.width) + " " + Math.round(frame.hotspotY * frame.height) + ", auto";
-		
-		// Work around a bug in Blink: changing the cursor between different data URLs does not have any effect.
-		// First clearing the cursor then setting it again causes the cursor to take effect.
-		document.body.style.cursor = "";
-		document.body.style.cursor = cursor_style;
-	};
-	
-	pluginProto.acts = new Acts();
-
-	//////////////////////////////////////
-	// Expressions
-	function Exps() {};
-
-	Exps.prototype.X = function (ret, layerparam)
-	{
-		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
-		
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxX = layer.parallaxX;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxX = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, true));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxX = oldParallaxX;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, true));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.Y = function (ret, layerparam)
-	{
-		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
-		
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxY = layer.parallaxY;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxY = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, false));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxY = oldParallaxY;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, false));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.AbsoluteX = function (ret)
-	{
-		ret.set_float(this.mouseXcanvas);
-	};
-	
-	Exps.prototype.AbsoluteY = function (ret)
-	{
-		ret.set_float(this.mouseYcanvas);
-	};
-	
-	pluginProto.exps = new Exps();
-	
-}());
-
-
-// Touch
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Plugin class
-cr.plugins_.Touch = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	var pluginProto = cr.plugins_.Touch.prototype;
-		
-	/////////////////////////////////////
-	// Object type class
-	pluginProto.Type = function(plugin)
-	{
-		this.plugin = plugin;
-		this.runtime = plugin.runtime;
-	};
-
-	var typeProto = pluginProto.Type.prototype;
-
-	typeProto.onCreate = function()
-	{
-	};
-
-	/////////////////////////////////////
-	// Instance class
-	pluginProto.Instance = function(type)
-	{
-		this.type = type;
-		this.runtime = type.runtime;
-		this.touches = [];
-		this.mouseDown = false;
-	};
-	
-	var instanceProto = pluginProto.Instance.prototype;
-	
-	var dummyoffset = {left: 0, top: 0};
-
-	instanceProto.findTouch = function (id)
-	{
-		var i, len;
-		for (i = 0, len = this.touches.length; i < len; i++)
-		{
-			if (this.touches[i]["id"] === id)
-				return i;
-		}
-		
-		return -1;
-	};
-	
-	var pg_accx = 0;
-	var pg_accy = 0;
-	var pg_accz = 0;
-	
-	function PhoneGapGetAcceleration(evt)
-	{
-		pg_accx = evt.x;
-		pg_accy = evt.y;
-		pg_accz = evt.z;
-	};
-	
-	var theInstance = null;
-	
-	var touchinfo_cache = [];
-	
-	function AllocTouchInfo(x, y, id, index)
-	{
-		var ret;
-		
-		if (touchinfo_cache.length)
-			ret = touchinfo_cache.pop();
-		else
-			ret = new TouchInfo();
-		
-		ret.init(x, y, id, index);
-		return ret;
-	};
-	
-	function ReleaseTouchInfo(ti)
-	{
-		if (touchinfo_cache.length < 100)
-			touchinfo_cache.push(ti);
-	};
-	
-	var GESTURE_HOLD_THRESHOLD = 15;		// max px motion for hold gesture to register
-	var GESTURE_HOLD_TIMEOUT = 500;			// time for hold gesture to register
-	var GESTURE_TAP_TIMEOUT = 333;			// time for tap gesture to register
-	var GESTURE_DOUBLETAP_THRESHOLD = 25;	// max distance apart for taps to be
-	
-	function TouchInfo()
-	{
-		this.starttime = 0;
-		this.time = 0;
-		this.lasttime = 0;
-		
-		this.startx = 0;
-		this.starty = 0;
-		this.x = 0;
-		this.y = 0;
-		this.lastx = 0;
-		this.lasty = 0;
-		
-		this["id"] = 0;
-		this.startindex = 0;
-		
-		this.triggeredHold = false;
-		this.tooFarForHold = false;
-	};
-	
-	TouchInfo.prototype.init = function (x, y, id, index)
-	{
-		var nowtime = cr.performance_now();
-		this.time = nowtime;
-		this.lasttime = nowtime;
-		this.starttime = nowtime;
-		
-		this.startx = x;
-		this.starty = y;
-		this.x = x;
-		this.y = y;
-		this.lastx = x;
-		this.lasty = y;
-		this.width = 0;
-		this.height = 0;
-		this.pressure = 0;
-		
-		this["id"] = id;
-		this.startindex = index;
-		
-		this.triggeredHold = false;
-		this.tooFarForHold = false;
-	};
-	
-	TouchInfo.prototype.update = function (nowtime, x, y, width, height, pressure)
-	{
-		this.lasttime = this.time;
-		this.time = nowtime;
-		
-		this.lastx = this.x;
-		this.lasty = this.y;
-		this.x = x;
-		this.y = y;
-		this.width = width;
-		this.height = height;
-		this.pressure = pressure;
-		
-		if (!this.tooFarForHold && cr.distanceTo(this.startx, this.starty, this.x, this.y) >= GESTURE_HOLD_THRESHOLD)
-		{
-			this.tooFarForHold = true;
-		}
-	};
-	
-	TouchInfo.prototype.maybeTriggerHold = function (inst, index)
-	{
-		if (this.triggeredHold)
-			return;		// already triggered this gesture
-		
-		var nowtime = cr.performance_now();
-		
-		// Is within 10px after 500ms
-		if (nowtime - this.starttime >= GESTURE_HOLD_TIMEOUT && !this.tooFarForHold && cr.distanceTo(this.startx, this.starty, this.x, this.y) < GESTURE_HOLD_THRESHOLD)
-		{
-			this.triggeredHold = true;
-			
-			inst.trigger_index = this.startindex;
-			inst.trigger_id = this["id"];
-			inst.getTouchIndex = index;
-			inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnHoldGesture, inst);
-			
-			inst.curTouchX = this.x;
-			inst.curTouchY = this.y;
-			inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnHoldGestureObject, inst);
-			
-			inst.getTouchIndex = 0;
-		}
-	};
-	
-	var lastTapX = -1000;
-	var lastTapY = -1000;
-	var lastTapTime = -10000;
-	
-	TouchInfo.prototype.maybeTriggerTap = function (inst, index)
-	{
-		if (this.triggeredHold)
-			return;
-		
-		var nowtime = cr.performance_now();
-		
-		// Must also come within the hold threshold
-		if (nowtime - this.starttime <= GESTURE_TAP_TIMEOUT && !this.tooFarForHold && cr.distanceTo(this.startx, this.starty, this.x, this.y) < GESTURE_HOLD_THRESHOLD)
-		{
-			inst.trigger_index = this.startindex;
-			inst.trigger_id = this["id"];
-			inst.getTouchIndex = index;
-			
-			// Is within the distance and time of last tap: trigger a double tap
-			if ((nowtime - lastTapTime <= GESTURE_TAP_TIMEOUT * 2) && cr.distanceTo(lastTapX, lastTapY, this.x, this.y) < GESTURE_DOUBLETAP_THRESHOLD)
-			{
-				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnDoubleTapGesture, inst);
-				
-				inst.curTouchX = this.x;
-				inst.curTouchY = this.y;
-				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnDoubleTapGestureObject, inst);
-				
-				lastTapX = -1000;
-				lastTapY = -1000;
-				lastTapTime = -10000;
-			}
-			// Otherwise trigger single tap
-			else
-			{
-				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTapGesture, inst);
-				
-				inst.curTouchX = this.x;
-				inst.curTouchY = this.y;
-				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTapGestureObject, inst);
-				
-				lastTapX = this.x;
-				lastTapY = this.y;
-				lastTapTime = nowtime;
-			}
-			
-			inst.getTouchIndex = 0;
-		}
-	};
-
-	instanceProto.onCreate = function()
-	{
-		theInstance = this;
-		this.isWindows8 = !!(typeof window["c2isWindows8"] !== "undefined" && window["c2isWindows8"]);
-		
-		this.orient_alpha = 0;
-		this.orient_beta = 0;
-		this.orient_gamma = 0;
-		
-		this.acc_g_x = 0;
-		this.acc_g_y = 0;
-		this.acc_g_z = 0;
-		this.acc_x = 0;
-		this.acc_y = 0;
-		this.acc_z = 0;
-		
-		this.curTouchX = 0;
-		this.curTouchY = 0;
-		
-		this.trigger_index = 0;
-		this.trigger_id = 0;
-		
-		// For returning correct position for TouchX and TouchY expressions in a trigger
-		this.getTouchIndex = 0;
-		
-		this.useMouseInput = this.properties[0];
-		
-		// Use document touch input for PhoneGap or fullscreen mode
-		var elem = (this.runtime.fullscreen_mode > 0) ? document : this.runtime.canvas;
-		
-		// Use elem2 to attach the up and cancel events to document, since we want to know about
-		// these even if they happen off the main canvas.
-		var elem2 = document;
-		
-		var self = this;
-		
-		if (typeof PointerEvent !== "undefined")
-		{
-			elem.addEventListener("pointerdown",
-				function(info) {
-					self.onPointerStart(info);
-				},
-				false
-			);
-			
-			elem.addEventListener("pointermove",
-				function(info) {
-					self.onPointerMove(info);
-				},
-				false
-			);
-			
-			// Always attach up/cancel events to document (note elem2),
-			// otherwise touches dragged off the canvas could get lost
-			elem2.addEventListener("pointerup",
-				function(info) {
-					self.onPointerEnd(info, false);
-				},
-				false
-			);
-			
-			// Treat pointer cancellation the same as a touch end
-			elem2.addEventListener("pointercancel",
-				function(info) {
-					self.onPointerEnd(info, true);
-				},
-				false
-			);
-			
-			if (this.runtime.canvas)
-			{
-				this.runtime.canvas.addEventListener("MSGestureHold", function(e) {
-					e.preventDefault();
-				}, false);
-				document.addEventListener("MSGestureHold", function(e) {
-					e.preventDefault();
-				}, false);
-				this.runtime.canvas.addEventListener("gesturehold", function(e) {
-					e.preventDefault();
-				}, false);
-				document.addEventListener("gesturehold", function(e) {
-					e.preventDefault();
-				}, false);
-			}
-		}
-		// IE10-style MS prefixed pointer events
-		else if (window.navigator["msPointerEnabled"])
-		{
-			elem.addEventListener("MSPointerDown",
-				function(info) {
-					self.onPointerStart(info);
-				},
-				false
-			);
-			
-			elem.addEventListener("MSPointerMove",
-				function(info) {
-					self.onPointerMove(info);
-				},
-				false
-			);
-			
-			// Always attach up/cancel events to document (note elem2),
-			// otherwise touches dragged off the canvas could get lost
-			elem2.addEventListener("MSPointerUp",
-				function(info) {
-					self.onPointerEnd(info, false);
-				},
-				false
-			);
-			
-			// Treat pointer cancellation the same as a touch end
-			elem2.addEventListener("MSPointerCancel",
-				function(info) {
-					self.onPointerEnd(info, true);
-				},
-				false
-			);
-			
-			if (this.runtime.canvas)
-			{
-				this.runtime.canvas.addEventListener("MSGestureHold", function(e) {
-					e.preventDefault();
-				}, false);
-				document.addEventListener("MSGestureHold", function(e) {
-					e.preventDefault();
-				}, false);
-			}
-		}
-		// otherwise old style touch events
-		else
-		{
-			elem.addEventListener("touchstart",
-				function(info) {
-					self.onTouchStart(info);
-				},
-				false
-			);
-			
-			elem.addEventListener("touchmove",
-				function(info) {
-					self.onTouchMove(info);
-				},
-				false
-			);
-			
-			// Always attach up/cancel events to document (note elem2),
-			// otherwise touches dragged off the canvas could get lost
-			elem2.addEventListener("touchend",
-				function(info) {
-					self.onTouchEnd(info, false);
-				},
-				false
-			);
-			
-			// Treat touch cancellation the same as a touch end
-			elem2.addEventListener("touchcancel",
-				function(info) {
-					self.onTouchEnd(info, true);
-				},
-				false
-			);
-		}
-		
-		if (this.isWindows8)
-		{
-			var win8accelerometerFn = function(e) {
-					var reading = e["reading"];
-					self.acc_x = reading["accelerationX"];
-					self.acc_y = reading["accelerationY"];
-					self.acc_z = reading["accelerationZ"];
-				};
-				
-			var win8inclinometerFn = function(e) {
-					var reading = e["reading"];
-					self.orient_alpha = reading["yawDegrees"];
-					self.orient_beta = reading["pitchDegrees"];
-					self.orient_gamma = reading["rollDegrees"];
-				};
-				
-			var accelerometer = Windows["Devices"]["Sensors"]["Accelerometer"]["getDefault"]();
-			
-            if (accelerometer)
-			{
-                accelerometer["reportInterval"] = Math.max(accelerometer["minimumReportInterval"], 16);
-				accelerometer.addEventListener("readingchanged", win8accelerometerFn);
-            }
-			
-			var inclinometer = Windows["Devices"]["Sensors"]["Inclinometer"]["getDefault"]();
-			
-			if (inclinometer)
-			{
-				inclinometer["reportInterval"] = Math.max(inclinometer["minimumReportInterval"], 16);
-				inclinometer.addEventListener("readingchanged", win8inclinometerFn);
-			}
-			
-			document.addEventListener("visibilitychange", function(e) {
-				if (document["hidden"] || document["msHidden"])
-				{
-					if (accelerometer)
-						accelerometer.removeEventListener("readingchanged", win8accelerometerFn);
-					if (inclinometer)
-						inclinometer.removeEventListener("readingchanged", win8inclinometerFn);
-				}
-				else
-				{
-					if (accelerometer)
-						accelerometer.addEventListener("readingchanged", win8accelerometerFn);
-					if (inclinometer)
-						inclinometer.addEventListener("readingchanged", win8inclinometerFn);
-				}
-			}, false);
-		}
-		else
-		{
-			
-			window.addEventListener("deviceorientation", function (eventData) {
-			
-				self.orient_alpha = eventData["alpha"] || 0;
-				self.orient_beta = eventData["beta"] || 0;
-				self.orient_gamma = eventData["gamma"] || 0;
-			
-			}, false);
-			
-			window.addEventListener("devicemotion", function (eventData) {
-			
-				if (eventData["accelerationIncludingGravity"])
-				{
-					self.acc_g_x = eventData["accelerationIncludingGravity"]["x"] || 0;
-					self.acc_g_y = eventData["accelerationIncludingGravity"]["y"] || 0;
-					self.acc_g_z = eventData["accelerationIncludingGravity"]["z"] || 0;
-				}
-				
-				if (eventData["acceleration"])
-				{
-					self.acc_x = eventData["acceleration"]["x"] || 0;
-					self.acc_y = eventData["acceleration"]["y"] || 0;
-					self.acc_z = eventData["acceleration"]["z"] || 0;
-				}
-				
-			}, false);
-		}
-		
-		if (this.useMouseInput)
-		{
-			document.addEventListener("mousemove", function(info) {
-				self.onMouseMove(info);
-			});
-			
-			document.addEventListener("mousedown", function(info) {
-				self.onMouseDown(info);
-			});
-			
-			document.addEventListener("mouseup", function(info) {
-				self.onMouseUp(info);
-			});
-		}
-		
-		// Use PhoneGap in case browser does not support accelerometer but device does
-		if (!this.runtime.isiOS && this.runtime.isCordova && navigator["accelerometer"] && navigator["accelerometer"]["watchAcceleration"])
-		{
-			navigator["accelerometer"]["watchAcceleration"](PhoneGapGetAcceleration, null, { "frequency": 40 });
-		}
-		
-		this.runtime.tick2Me(this);
-	};
-	
-	instanceProto.onPointerMove = function (info)
-	{
-		// Ignore mouse events (note check for both IE10 and IE11 style pointerType values)
-		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
-			return;
-		
-		if (info.preventDefault)
-			info.preventDefault();
-		
-		var i = this.findTouch(info["pointerId"]);
-		var nowtime = cr.performance_now();
-		
-		if (i >= 0)
-		{
-			var offsetLeft = this.runtime.canvas.offsetLeft;
-			var offsetTop = this.runtime.canvas.offsetTop;
-			var t = this.touches[i];
-			
-			// Ignore events <2ms after the last event - seems events sometimes double-fire
-			// very close which throws off speed measurements
-			if (nowtime - t.time < 2)
-				return;
-			
-			t.update(nowtime, info.pageX - offsetLeft, info.pageY - offsetTop, info.width || 0, info.height || 0, info.pressure || 0);
-		}
-	};
-
-	instanceProto.onPointerStart = function (info)
-	{
-		// Ignore mouse events (note check for both IE10 and IE11 style pointerType values)
-		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
-			return;
-		
-		// Ignore if already got a pointer with this ID. (This is mainly to deal with buggy implementations
-		// that fire the same pointer IDs down twice, e.g. Firefox desktop.)
-		var i = this.findTouch(info["pointerId"]);
-		if (i !== -1)
-			return;
-			
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-		
-		var offsetLeft = this.runtime.canvas.offsetLeft;
-		var offsetTop = this.runtime.canvas.offsetTop;
-		var touchx = info.pageX - offsetLeft;
-		var touchy = info.pageY - offsetTop;
-		var nowtime = cr.performance_now();
-		
-		this.trigger_index = this.touches.length;
-		this.trigger_id = info["pointerId"];
-		
-		this.touches.push(AllocTouchInfo(touchx, touchy, info["pointerId"], this.trigger_index));
-		
-		this.runtime.isInUserInputEvent = true;
-		
-		// Trigger OnNthTouchStart then OnTouchStart
-		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchStart, this);
-		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchStart, this);
-		
-		// Trigger OnTouchObject for each touch started event		
-		this.curTouchX = touchx;
-		this.curTouchY = touchy;
-		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchObject, this);
-		
-		this.runtime.isInUserInputEvent = false;
-	};
-
-	instanceProto.onPointerEnd = function (info, isCancel)
-	{
-		// Ignore mouse events (note check for both IE10 and IE11 style pointerType values)
-		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
-			return;
-			
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-			
-		var i = this.findTouch(info["pointerId"]);
-		this.trigger_index = (i >= 0 ? this.touches[i].startindex : -1);
-		this.trigger_id = (i >= 0 ? this.touches[i]["id"] : -1);
-		
-		this.runtime.isInUserInputEvent = true;
-		
-		// Trigger OnNthTouchEnd & OnTouchEnd
-		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchEnd, this);
-		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchEnd, this);
-		
-		// Remove touch
-		if (i >= 0)
-		{
-			if (!isCancel)
-				this.touches[i].maybeTriggerTap(this, i);
-			
-			ReleaseTouchInfo(this.touches[i]);
-			this.touches.splice(i, 1);
-		}
-		
-		this.runtime.isInUserInputEvent = false;
-	};
-
-	instanceProto.onTouchMove = function (info)
-	{
-		if (info.preventDefault)
-			info.preventDefault();
-		
-		var nowtime = cr.performance_now();
-		
-		var i, len, t, u;
-		for (i = 0, len = info.changedTouches.length; i < len; i++)
-		{
-			t = info.changedTouches[i];
-			
-			var j = this.findTouch(t["identifier"]);
-			
-			if (j >= 0)
-			{
-				var offsetLeft = this.runtime.canvas.offsetLeft;
-				var offsetTop = this.runtime.canvas.offsetTop;
-				u = this.touches[j];
-				
-				// Ignore events <2ms after the last event - seems events sometimes double-fire
-				// very close which throws off speed measurements
-				if (nowtime - u.time < 2)
-					continue;
-				
-				var touchWidth = (t.radiusX || t.webkitRadiusX || t.mozRadiusX || t.msRadiusX || 0) * 2;
-				var touchHeight = (t.radiusY || t.webkitRadiusY || t.mozRadiusY || t.msRadiusY || 0) * 2;
-				var touchForce = t.force || t.webkitForce || t.mozForce || t.msForce || 0;
-				u.update(nowtime, t.pageX - offsetLeft, t.pageY - offsetTop, touchWidth, touchHeight, touchForce);
-			}
-		}
-	};
-
-	instanceProto.onTouchStart = function (info)
-	{
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-			
-		var offsetLeft = this.runtime.canvas.offsetLeft;
-		var offsetTop = this.runtime.canvas.offsetTop;
-		var nowtime = cr.performance_now();
-		
-		this.runtime.isInUserInputEvent = true;
-		
-		var i, len, t, j;
-		for (i = 0, len = info.changedTouches.length; i < len; i++)
-		{
-			t = info.changedTouches[i];
-			
-			// WORKAROUND Chrome for Android bug: touchstart sometimes fires twice with same id.
-			// If there is already a touch with this id, ignore this event.
-			j = this.findTouch(t["identifier"]);
-			
-			if (j !== -1)
-				continue;
-			// END WORKAROUND
-			
-			var touchx = t.pageX - offsetLeft;
-			var touchy = t.pageY - offsetTop;
-			
-			this.trigger_index = this.touches.length;
-			this.trigger_id = t["identifier"];
-			
-			this.touches.push(AllocTouchInfo(touchx, touchy, t["identifier"], this.trigger_index));
-			
-			// Trigger OnNthTouchStart then OnTouchStart
-			this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchStart, this);
-			this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchStart, this);
-			
-			// Trigger OnTouchObject for each touch started event		
-			this.curTouchX = touchx;
-			this.curTouchY = touchy;
-			this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchObject, this);
-		}
-		
-		this.runtime.isInUserInputEvent = false;
-	};
-
-	instanceProto.onTouchEnd = function (info, isCancel)
-	{
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-			
-		this.runtime.isInUserInputEvent = true;
-		
-		var i, len, t, j;
-		for (i = 0, len = info.changedTouches.length; i < len; i++)
-		{
-			t = info.changedTouches[i];
-			j = this.findTouch(t["identifier"]);
-			
-			// Remove touch
-			if (j >= 0)
-			{
-				// Trigger OnNthTouchEnd & OnTouchEnd
-				// NOTE: Android stock browser is total garbage and fires touchend twice
-				// when a single touch ends. So we only fire these events when we found the
-				// touch identifier exists.
-				this.trigger_index = this.touches[j].startindex;
-				this.trigger_id = this.touches[j]["id"];
-			
-				this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchEnd, this);
-				this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchEnd, this);
-			
-				if (!isCancel)
-					this.touches[j].maybeTriggerTap(this, j);
-				
-				ReleaseTouchInfo(this.touches[j]);
-				this.touches.splice(j, 1);
-			}
-		}
-		
-		this.runtime.isInUserInputEvent = false;
-	};
-	
-	instanceProto.getAlpha = function ()
-	{
-		if (this.runtime.isCordova && this.orient_alpha === 0 && pg_accz !== 0)
-			return pg_accz * 90;
-		else
-			return this.orient_alpha;
-	};
-	
-	instanceProto.getBeta = function ()
-	{
-		if (this.runtime.isCordova && this.orient_beta === 0 && pg_accy !== 0)
-			return pg_accy * 90;
-		else
-			return this.orient_beta;
-	};
-	
-	instanceProto.getGamma = function ()
-	{
-		if (this.runtime.isCordova && this.orient_gamma === 0 && pg_accx !== 0)
-			return pg_accx * 90;
-		else
-			return this.orient_gamma;
-	};
-	
-	var noop_func = function(){};
-	
-	function isCompatibilityMouseEvent(e)
-	{
-		return (e["sourceCapabilities"] && e["sourceCapabilities"]["firesTouchEvents"]) ||
-				(e.originalEvent && e.originalEvent["sourceCapabilities"] && e.originalEvent["sourceCapabilities"]["firesTouchEvents"]);
-	};
-
-	instanceProto.onMouseDown = function(info)
-	{
-		// Ignore compatibility mouse events fired after touches, since this can cause double-firing triggers in iframes.
-		if (isCompatibilityMouseEvent(info))
-			return;
-		
-		// Send a fake touch start event
-		var t = { pageX: info.pageX, pageY: info.pageY, "identifier": 0 };
-		var fakeinfo = { changedTouches: [t] };
-		this.onTouchStart(fakeinfo);
-		this.mouseDown = true;
-	};
-	
-	instanceProto.onMouseMove = function(info)
-	{
-		if (!this.mouseDown)
-			return;
-		
-		if (isCompatibilityMouseEvent(info))
-			return;
-			
-		// Send a fake touch move event
-		var t = { pageX: info.pageX, pageY: info.pageY, "identifier": 0 };
-		var fakeinfo = { changedTouches: [t] };
-		this.onTouchMove(fakeinfo);
-	};
-
-	instanceProto.onMouseUp = function(info)
-	{
-		if (info.preventDefault && this.runtime.had_a_click && !this.runtime.isMobile)
-			info.preventDefault();
-			
-		this.runtime.had_a_click = true;
-		
-		if (isCompatibilityMouseEvent(info))
-			return;
-		
-		// Send a fake touch end event
-		var t = { pageX: info.pageX, pageY: info.pageY, "identifier": 0 };
-		var fakeinfo = { changedTouches: [t] };
-		this.onTouchEnd(fakeinfo);
-		this.mouseDown = false;
-	};
-	
-	instanceProto.isClientPosOverCanvas = function (touchX, touchY)
-	{
-		return touchX >= 0 && touchY >= 0 &&
-		    	touchX < this.runtime.width && touchY < this.runtime.height;
-	};
-	
-	instanceProto.tick2 = function()
-	{
-		var i, len, t;
-		var nowtime = cr.performance_now();
-		
-		for (i = 0, len = this.touches.length; i < len; ++i)
-		{
-			// Update speed for touches which haven't moved for 50ms
-			t = this.touches[i];
-			
-			if (t.time <= nowtime - 50)
-				t.lasttime = nowtime;
-			
-			// Gesture detection
-			t.maybeTriggerHold(this, i);
-		}
-	};
-	
-
-	//////////////////////////////////////
-	// Conditions
-	function Cnds() {};
-
-	Cnds.prototype.OnTouchStart = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.OnTouchEnd = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.IsInTouch = function ()
-	{
-		return this.touches.length;
-	};
-	
-	Cnds.prototype.OnTouchObject = function (type)
-	{
-		if (!type)
-			return false;
-		
-		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
-			return false;
-			
-		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
-	};
-	
-	var touching = [];
-	
-	Cnds.prototype.IsTouchingObject = function (type)
-	{
-		if (!type)
-			return false;
-			
-		var sol = type.getCurrentSol();
-		var instances = sol.getObjects();
-		var px, py;
-			
-		// Check all touches for overlap with any instance
-		var i, leni, j, lenj;
-		for (i = 0, leni = instances.length; i < leni; i++)
-		{
-			var inst = instances[i];
-			inst.update_bbox();
-			
-			for (j = 0, lenj = this.touches.length; j < lenj; j++)
-			{
-				var touch = this.touches[j];
-				
-				if (!this.isClientPosOverCanvas(touch.x, touch.y))
-					continue;
-				
-				px = inst.layer.canvasToLayer(touch.x, touch.y, true);
-				py = inst.layer.canvasToLayer(touch.x, touch.y, false);
-				
-				if (inst.contains_pt(px, py))
-				{
-					touching.push(inst);
-					break;
-				}
-			}
-		}
-		
-		if (touching.length)
-		{
-			sol.select_all = false;
-			cr.shallowAssignArray(sol.instances, touching);
-			type.applySolToContainer();
-			cr.clearArray(touching);
-			return true;
-		}
-		else
-			return false;
-	};
-	
-	Cnds.prototype.CompareTouchSpeed = function (index, cmp, s)
-	{
-		index = Math.floor(index);
-		
-		if (index < 0 || index >= this.touches.length)
-			return false;
-		
-		var t = this.touches[index];
-		var dist = cr.distanceTo(t.x, t.y, t.lastx, t.lasty);
-		var timediff = (t.time - t.lasttime) / 1000;
-		var speed = 0;
-		
-		if (timediff > 0)
-			speed = dist / timediff;
-			
-		return cr.do_cmp(speed, cmp, s);
-	};
-	
-	Cnds.prototype.OrientationSupported = function ()
-	{
-		return typeof window["DeviceOrientationEvent"] !== "undefined";
-	};
-	
-	Cnds.prototype.MotionSupported = function ()
-	{
-		return typeof window["DeviceMotionEvent"] !== "undefined";
-	};
-	
-	Cnds.prototype.CompareOrientation = function (orientation_, cmp_, angle_)
-	{
-		var v = 0;
-		
-		if (orientation_ === 0)
-			v = this.getAlpha();
-		else if (orientation_ === 1)
-			v = this.getBeta();
-		else
-			v = this.getGamma();
-			
-		return cr.do_cmp(v, cmp_, angle_);
-	};
-	
-	Cnds.prototype.CompareAcceleration = function (acceleration_, cmp_, angle_)
-	{
-		var v = 0;
-		
-		if (acceleration_ === 0)
-			v = this.acc_g_x;
-		else if (acceleration_ === 1)
-			v = this.acc_g_y;
-		else if (acceleration_ === 2)
-			v = this.acc_g_z;
-		else if (acceleration_ === 3)
-			v = this.acc_x;
-		else if (acceleration_ === 4)
-			v = this.acc_y;
-		else if (acceleration_ === 5)
-			v = this.acc_z;
-		
-		return cr.do_cmp(v, cmp_, angle_);
-	};
-	
-	Cnds.prototype.OnNthTouchStart = function (touch_)
-	{
-		touch_ = Math.floor(touch_);
-		return touch_ === this.trigger_index;
-	};
-	
-	Cnds.prototype.OnNthTouchEnd = function (touch_)
-	{
-		touch_ = Math.floor(touch_);
-		return touch_ === this.trigger_index;
-	};
-	
-	Cnds.prototype.HasNthTouch = function (touch_)
-	{
-		touch_ = Math.floor(touch_);
-		return this.touches.length >= touch_ + 1;
-	};
-	
-	Cnds.prototype.OnHoldGesture = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.OnTapGesture = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.OnDoubleTapGesture = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.OnHoldGestureObject = function (type)
-	{
-		if (!type)
-			return false;
-		
-		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
-			return false;
-		
-		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
-	};
-	
-	Cnds.prototype.OnTapGestureObject = function (type)
-	{
-		if (!type)
-			return false;
-		
-		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
-			return false;
-		
-		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
-	};
-	
-	Cnds.prototype.OnDoubleTapGestureObject = function (type)
-	{
-		if (!type)
-			return false;
-		
-		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
-			return false;
-		
-		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
-	};
-	
-	pluginProto.cnds = new Cnds();
-
-	//////////////////////////////////////
-	// Expressions
-	function Exps() {};
-
-	Exps.prototype.TouchCount = function (ret)
-	{
-		ret.set_int(this.touches.length);
-	};
-	
-	Exps.prototype.X = function (ret, layerparam)
-	{
-		var index = this.getTouchIndex;
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
-	
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxX = layer.parallaxX;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxX = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxX = oldParallaxX;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.XAt = function (ret, index, layerparam)
-	{
-		index = Math.floor(index);
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
-	
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxX = layer.parallaxX;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxX = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxX = oldParallaxX;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.XForID = function (ret, id, layerparam)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-		
-		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
-	
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxX = layer.parallaxX;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxX = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(touch.x, touch.y, true));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxX = oldParallaxX;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(touch.x, touch.y, true));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.Y = function (ret, layerparam)
-	{
-		var index = this.getTouchIndex;
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
-	
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxY = layer.parallaxY;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxY = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxY = oldParallaxY;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.YAt = function (ret, index, layerparam)
-	{
-		index = Math.floor(index);
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
-	
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxY = layer.parallaxY;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxY = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxY = oldParallaxY;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.YForID = function (ret, id, layerparam)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-		
-		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
-	
-		if (cr.is_undefined(layerparam))
-		{
-			// calculate X position on bottom layer as if its scale were 1.0
-			layer = this.runtime.getLayerByNumber(0);
-			oldScale = layer.scale;
-			oldZoomRate = layer.zoomRate;
-			oldParallaxY = layer.parallaxY;
-			oldAngle = layer.angle;
-			layer.scale = 1;
-			layer.zoomRate = 1.0;
-			layer.parallaxY = 1.0;
-			layer.angle = 0;
-			ret.set_float(layer.canvasToLayer(touch.x, touch.y, false));
-			layer.scale = oldScale;
-			layer.zoomRate = oldZoomRate;
-			layer.parallaxY = oldParallaxY;
-			layer.angle = oldAngle;
-		}
-		else
-		{
-			// use given layer param
-			if (cr.is_number(layerparam))
-				layer = this.runtime.getLayerByNumber(layerparam);
-			else
-				layer = this.runtime.getLayerByName(layerparam);
-				
-			if (layer)
-				ret.set_float(layer.canvasToLayer(touch.x, touch.y, false));
-			else
-				ret.set_float(0);
-		}
-	};
-	
-	Exps.prototype.AbsoluteX = function (ret)
-	{
-		if (this.touches.length)
-			ret.set_float(this.touches[0].x);
-		else
-			ret.set_float(0);
-	};
-	
-	Exps.prototype.AbsoluteXAt = function (ret, index)
-	{
-		index = Math.floor(index);
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-
-		ret.set_float(this.touches[index].x);
-	};
-	
-	Exps.prototype.AbsoluteXForID = function (ret, id)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-
-		ret.set_float(touch.x);
-	};
-	
-	Exps.prototype.AbsoluteY = function (ret)
-	{
-		if (this.touches.length)
-			ret.set_float(this.touches[0].y);
-		else
-			ret.set_float(0);
-	};
-	
-	Exps.prototype.AbsoluteYAt = function (ret, index)
-	{
-		index = Math.floor(index);
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-
-		ret.set_float(this.touches[index].y);
-	};
-	
-	Exps.prototype.AbsoluteYForID = function (ret, id)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-
-		ret.set_float(touch.y);
-	};
-	
-	Exps.prototype.SpeedAt = function (ret, index)
-	{
-		index = Math.floor(index);
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var t = this.touches[index];
-		var dist = cr.distanceTo(t.x, t.y, t.lastx, t.lasty);
-		var timediff = (t.time - t.lasttime) / 1000;
-		
-		if (timediff <= 0)
-			ret.set_float(0);
-		else
-			ret.set_float(dist / timediff);
-	};
-	
-	Exps.prototype.SpeedForID = function (ret, id)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-		
-		var dist = cr.distanceTo(touch.x, touch.y, touch.lastx, touch.lasty);
-		var timediff = (touch.time - touch.lasttime) / 1000;
-		
-		if (timediff <= 0)
-			ret.set_float(0);
-		else
-			ret.set_float(dist / timediff);
-	};
-	
-	Exps.prototype.AngleAt = function (ret, index)
-	{
-		index = Math.floor(index);
-		
-		if (index < 0 || index >= this.touches.length)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var t = this.touches[index];
-		ret.set_float(cr.to_degrees(cr.angleTo(t.lastx, t.lasty, t.x, t.y)));
-	};
-	
-	Exps.prototype.AngleForID = function (ret, id)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-		
-		ret.set_float(cr.to_degrees(cr.angleTo(touch.lastx, touch.lasty, touch.x, touch.y)));
-	};
-	
-	Exps.prototype.Alpha = function (ret)
-	{
-		ret.set_float(this.getAlpha());
-	};
-	
-	Exps.prototype.Beta = function (ret)
-	{
-		ret.set_float(this.getBeta());
-	};
-	
-	Exps.prototype.Gamma = function (ret)
-	{
-		ret.set_float(this.getGamma());
-	};
-	
-	Exps.prototype.AccelerationXWithG = function (ret)
-	{
-		ret.set_float(this.acc_g_x);
-	};
-	
-	Exps.prototype.AccelerationYWithG = function (ret)
-	{
-		ret.set_float(this.acc_g_y);
-	};
-	
-	Exps.prototype.AccelerationZWithG = function (ret)
-	{
-		ret.set_float(this.acc_g_z);
-	};
-	
-	Exps.prototype.AccelerationX = function (ret)
-	{
-		ret.set_float(this.acc_x);
-	};
-	
-	Exps.prototype.AccelerationY = function (ret)
-	{
-		ret.set_float(this.acc_y);
-	};
-	
-	Exps.prototype.AccelerationZ = function (ret)
-	{
-		ret.set_float(this.acc_z);
-	};
-	
-	Exps.prototype.TouchIndex = function (ret)
-	{
-		ret.set_int(this.trigger_index);
-	};
-	
-	Exps.prototype.TouchID = function (ret)
-	{
-		ret.set_float(this.trigger_id);
-	};
-	
-	Exps.prototype.WidthForID = function (ret, id)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-		ret.set_float(touch.width);
-	};
-	
-	Exps.prototype.HeightForID = function (ret, id)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-		ret.set_float(touch.height);
-	};
-	
-	Exps.prototype.PressureForID = function (ret, id)
-	{
-		var index = this.findTouch(id);
-		
-		if (index < 0)
-		{
-			ret.set_float(0);
-			return;
-		}
-		
-		var touch = this.touches[index];
-		ret.set_float(touch.pressure);
-	};
-	
-	pluginProto.exps = new Exps();
-	
-}());
-
-// Tiled Background
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Plugin class
-cr.plugins_.TiledBg = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	var pluginProto = cr.plugins_.TiledBg.prototype;
-		
-	/////////////////////////////////////
-	// Object type class
-	pluginProto.Type = function(plugin)
-	{
-		this.plugin = plugin;
-		this.runtime = plugin.runtime;
-	};
-
-	var typeProto = pluginProto.Type.prototype;
-
-	typeProto.onCreate = function()
-	{
-		if (this.is_family)
-			return;
-		
-		this.texture_img = this.runtime.findWaitingTexture(this.texture_file);
-		
-		if (!this.texture_img)
-		{
-			this.texture_img = new Image();
-			this.texture_img.cr_src = this.texture_file;
-			this.texture_img.cr_filesize = this.texture_filesize;
-			this.texture_img.c2webGL_texture = null;
-			this.runtime.waitForImageLoad(this.texture_img, this.texture_file);
-		}
-		
-		this.pattern = null;
-		this.webGL_texture = null;
-	};
-	
-	typeProto.onLostWebGLContext = function ()
-	{
-		if (this.is_family)
-			return;
-			
-		this.webGL_texture = null;
-	};
-	
-	typeProto.onRestoreWebGLContext = function ()
-	{
-		// No need to create textures if no instances exist, will create on demand
-		if (this.is_family || !this.instances.length)
-			return;
-		
-		if (!this.webGL_texture)
-		{
-			this.webGL_texture = this.runtime.glwrap.loadTexture(this.texture_img, true, this.runtime.linearSampling, this.texture_pixelformat);
-		}
-		
-		var i, len;
-		for (i = 0, len = this.instances.length; i < len; i++)
-			this.instances[i].webGL_texture = this.webGL_texture;
-	};
-	
-	typeProto.loadTextures = function ()
-	{
-		if (this.is_family || this.webGL_texture || !this.runtime.glwrap)
-			return;
-			
-		this.webGL_texture = this.runtime.glwrap.loadTexture(this.texture_img, true, this.runtime.linearSampling, this.texture_pixelformat);
-	};
-	
-	typeProto.unloadTextures = function ()
-	{
-		// Don't release textures if any instances still exist, they are probably using them
-		if (this.is_family || this.instances.length || !this.webGL_texture)
-			return;
-		
-		this.runtime.glwrap.deleteTexture(this.webGL_texture);
-		this.webGL_texture = null;
-	};
-	
-	typeProto.preloadCanvas2D = function (ctx)
-	{
-		// draw to preload, browser should lazy load the texture
-		ctx.drawImage(this.texture_img, 0, 0);
-	};
-
-	/////////////////////////////////////
-	// Instance class
-	pluginProto.Instance = function(type)
-	{
-		this.type = type;
-		this.runtime = type.runtime;
-	};
-	
-	var instanceProto = pluginProto.Instance.prototype;
-
-	instanceProto.onCreate = function()
-	{
-		this.visible = this.properties[0];									// 0=visible, 1=invisible
-		this.rcTex = new cr.rect(0, 0, 0, 0);
-		
-		this.has_own_texture = false;										// true if a texture loaded in from URL
-		this.texture_img = this.type.texture_img;
-		
-		if (this.runtime.glwrap)
-		{
-			// Create WebGL texture if type doesn't have it yet
-			this.type.loadTextures();
-			
-			this.webGL_texture = this.type.webGL_texture;
-		}
-		else
-		{
-			// Create the pattern if the type doesn't have one yet
-			if (!this.type.pattern)
-				this.type.pattern = this.runtime.ctx.createPattern(this.type.texture_img, "repeat");
-			
-			this.pattern = this.type.pattern;
-		}
-	};
-	
-	instanceProto.afterLoad = function ()
-	{
-		// If has own texture, reset to normal texture since the texture isn't saved with the state
-		this.has_own_texture = false;
-		this.texture_img = this.type.texture_img;
-	};
-	
-	instanceProto.onDestroy = function ()
-	{
-		// WebGL renderer: if we have our own texture (via load from URL), delete it now
-		if (this.runtime.glwrap && this.has_own_texture && this.webGL_texture)
-		{
-			this.runtime.glwrap.deleteTexture(this.webGL_texture);
-			this.webGL_texture = null;
-		}
-	};
-
-	instanceProto.draw = function(ctx)
-	{
-		ctx.globalAlpha = this.opacity;
-			
-		ctx.save();
-		
-		ctx.fillStyle = this.pattern;
-		
-		var myx = this.x;
-		var myy = this.y;
-		
-		if (this.runtime.pixel_rounding)
-		{
-			myx = Math.round(myx);
-			myy = Math.round(myy);
-		}
-		
-		// Patterns tile from the origin no matter where you draw from.
-		// Translate the canvas to align with the draw position, then offset the draw position as well.
-		var drawX = -(this.hotspotX * this.width);
-		var drawY = -(this.hotspotY * this.height);
-		
-		var offX = drawX % this.texture_img.width;
-		var offY = drawY % this.texture_img.height;
-		if (offX < 0)
-			offX += this.texture_img.width;
-		if (offY < 0)
-			offY += this.texture_img.height;
-			
-		ctx.translate(myx, myy);
-		ctx.rotate(this.angle);
-		ctx.translate(offX, offY);
-		
-		ctx.fillRect(drawX - offX,
-					 drawY - offY,
-					 this.width,
-					 this.height);
-		
-		ctx.restore();
-	};
-	
-	instanceProto.drawGL_earlyZPass = function(glw)
-	{
-		this.drawGL(glw);
-	};
-	
-	instanceProto.drawGL = function(glw)
-	{
-		glw.setTexture(this.webGL_texture);
-		glw.setOpacity(this.opacity);
-		
-		var rcTex = this.rcTex;
-		rcTex.right = this.width / this.texture_img.width;
-		rcTex.bottom = this.height / this.texture_img.height;
-		
-		var q = this.bquad;
-		
-		if (this.runtime.pixel_rounding)
-		{
-			var ox = Math.round(this.x) - this.x;
-			var oy = Math.round(this.y) - this.y;
-			
-			glw.quadTex(q.tlx + ox, q.tly + oy, q.trx + ox, q.try_ + oy, q.brx + ox, q.bry + oy, q.blx + ox, q.bly + oy, rcTex);
-		}
-		else
-			glw.quadTex(q.tlx, q.tly, q.trx, q.try_, q.brx, q.bry, q.blx, q.bly, rcTex);
-	};
-
-	//////////////////////////////////////
-	// Conditions
-	function Cnds() {};
-	
-	Cnds.prototype.OnURLLoaded = function ()
-	{
-		return true;
-	};
-	
-	pluginProto.cnds = new Cnds();
-	
-	//////////////////////////////////////
-	// Actions
-	function Acts() {};
-
-	Acts.prototype.SetEffect = function (effect)
-	{
-		this.blend_mode = effect;
-		this.compositeOp = cr.effectToCompositeOp(effect);
-		cr.setGLBlend(this, effect, this.runtime.gl);
-		this.runtime.redraw = true;
-	};
-	
-	Acts.prototype.LoadURL = function (url_, crossOrigin_)
-	{
-		var img = new Image();
-		var self = this;
-		
-		img.onload = function ()
-		{
-			self.texture_img = img;
-			
-			// WebGL renderer
-			if (self.runtime.glwrap)
-			{
-				// Delete any previous own texture
-				if (self.has_own_texture && self.webGL_texture)
-					self.runtime.glwrap.deleteTexture(self.webGL_texture);
-					
-				self.webGL_texture = self.runtime.glwrap.loadTexture(img, true, self.runtime.linearSampling);
-			}
-			// Canvas2D renderer
-			else
-			{
-				self.pattern = self.runtime.ctx.createPattern(img, "repeat");
-			}
-			
-			self.has_own_texture = true;
-			self.runtime.redraw = true;
-			self.runtime.trigger(cr.plugins_.TiledBg.prototype.cnds.OnURLLoaded, self);
-		};
-		
-		if (url_.substr(0, 5) !== "data:" && crossOrigin_ === 0)
-			img.crossOrigin = "anonymous";
-		
-		// use runtime function to work around WKWebView permissions
-		this.runtime.setImageSrc(img, url_);
-	};
-	
-	pluginProto.acts = new Acts();
-	
-	//////////////////////////////////////
-	// Expressions
-	function Exps() {};
-	
-	Exps.prototype.ImageWidth = function (ret)
-	{
-		ret.set_float(this.texture_img.width);
-	};
-	
-	Exps.prototype.ImageHeight = function (ret)
-	{
-		ret.set_float(this.texture_img.height);
-	};
-	
-	pluginProto.exps = new Exps();
-
-}());
-
-// Particles
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Plugin class
-cr.plugins_.Particles = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	/////////////////////////////////////
-	var pluginProto = cr.plugins_.Particles.prototype;
-		
-	/////////////////////////////////////
-	// Object type class
-	pluginProto.Type = function(plugin)
-	{
-		this.plugin = plugin;
-		this.runtime = plugin.runtime;
-	};
-
-	var typeProto = pluginProto.Type.prototype;
-
-	// called on startup for each object type
-	typeProto.onCreate = function()
-	{
-		if (this.is_family)
-			return;
-		
-		this.texture_img = this.runtime.findWaitingTexture(this.texture_file);
-		
-		if (!this.texture_img)
-		{
-			this.texture_img = new Image();
-			this.texture_img.cr_src = this.texture_file;
-			this.texture_img.cr_filesize = this.texture_filesize;
-			this.texture_img.c2webGL_texture = null;
-			this.runtime.waitForImageLoad(this.texture_img, this.texture_file);
-		}
-		
-		this.spriteX = this.texture_data[3];
-		this.spriteY = this.texture_data[4];
-		this.spriteWidth = this.texture_data[5];
-		this.spriteHeight = this.texture_data[6];
-	};
-	
-	typeProto.onLostWebGLContext = function ()
-	{
-		if (this.is_family)
-			return;
-			
-		this.webGL_texture = null;
-	};
-	
-	typeProto.createParticleTexture = function ()
-	{
-		// Shortcut to correctly render spritesheeted particle in WebGL: cut the image out of its spritesheet
-		// and create a texture from that. TODO: render directly from spritesheet texture via texture coords.
-		var tmpcanvas = document.createElement("canvas");
-		var w = this.spriteWidth;
-		var h = this.spriteHeight;
-		tmpcanvas.width = w;
-		tmpcanvas.height = h;
-		var tmpctx = tmpcanvas.getContext("2d");
-		tmpctx.drawImage(this.texture_img, this.spriteX, this.spriteY, w, h, 0, 0, w, h);
-		
-		this.webGL_texture = this.runtime.glwrap.loadTexture(tmpcanvas, true, this.runtime.linearSampling, this.texture_pixelformat);
-	};
-	
-	typeProto.onRestoreWebGLContext = function ()
-	{
-		// No need to create textures if no instances exist, will create on demand
-		if (this.is_family || !this.instances.length)
-			return;
-		
-		if (!this.webGL_texture)
-		{
-			this.createParticleTexture();
-		}
-	};
-	
-	typeProto.loadTextures = function ()
-	{
-		if (this.is_family || this.webGL_texture || !this.runtime.glwrap)
-			return;
-		
-		this.createParticleTexture();
-	};
-	
-	typeProto.unloadTextures = function ()
-	{
-		if (this.is_family || this.instances.length || !this.webGL_texture)
-			return;
-
-		this.runtime.glwrap.deleteTexture(this.webGL_texture);
-		this.webGL_texture = null;
-	};
-	
-	typeProto.preloadCanvas2D = function (ctx)
-	{
-		// draw to preload, browser should lazy load the texture
-		ctx.drawImage(this.texture_img, 0, 0);
-	};
-	
-	/////////////////////////////////////
-	// Particle class
-	function Particle(owner)
-	{
-		this.owner = owner;
-		this.active = false;
-		this.x = 0;
-		this.y = 0;
-		this.speed = 0;
-		this.angle = 0;
-		this.opacity = 1;
-		this.grow = 0;
-		this.size = 0;
-		this.gs = 0;			// gravity speed
-		this.age = 0;
-		cr.seal(this);
-	};
-	
-	Particle.prototype.init = function ()
-	{
-		var owner = this.owner;
-		this.x = owner.x - (owner.xrandom / 2) + (Math.random() * owner.xrandom);
-		this.y = owner.y - (owner.yrandom / 2) + (Math.random() * owner.yrandom);
-		
-		this.speed = owner.initspeed - (owner.speedrandom / 2) + (Math.random() * owner.speedrandom);
-		this.angle = owner.angle - (owner.spraycone / 2) + (Math.random() * owner.spraycone);
-		this.opacity = owner.initopacity;
-		this.size = owner.initsize - (owner.sizerandom / 2) + (Math.random() * owner.sizerandom);
-		this.grow = owner.growrate - (owner.growrandom / 2) + (Math.random() * owner.growrandom);
-		this.gs = 0;
-		this.age = 0;
-	};
-	
-	Particle.prototype.tick = function (dt)
-	{
-		var owner = this.owner;
-		
-		// Move
-		this.x += Math.cos(this.angle) * this.speed * dt;
-		this.y += Math.sin(this.angle) * this.speed * dt;
-		
-		// Apply gravity
-		this.y += this.gs * dt;
-		
-		// Adjust lifetime parameters
-		this.speed += owner.acc * dt;
-		this.size += this.grow * dt;
-		this.gs += owner.g * dt;
-		this.age += dt;
-		
-		// Destroy particle if shrunk to less than a pixel in size
-		if (this.size < 1)
-		{
-			this.active = false;
-			return;
-		}
-		
-		if (owner.lifeanglerandom !== 0)
-			this.angle += (Math.random() * owner.lifeanglerandom * dt) - (owner.lifeanglerandom * dt / 2);
-			
-		if (owner.lifespeedrandom !== 0)
-			this.speed += (Math.random() * owner.lifespeedrandom * dt) - (owner.lifespeedrandom * dt / 2);
-			
-		if (owner.lifeopacityrandom !== 0)
-		{
-			this.opacity += (Math.random() * owner.lifeopacityrandom * dt) - (owner.lifeopacityrandom * dt / 2);
-			
-			if (this.opacity < 0)
-				this.opacity = 0;
-			else if (this.opacity > 1)
-				this.opacity = 1;
-		}
-		
-		// Make inactive after timeout for both fade and timeout settings
-		if (owner.destroymode <= 1 && this.age >= owner.timeout)
-		{
-			this.active = false;
-		}
-		// Or make inactive when stopped
-		if (owner.destroymode === 2 && this.speed <= 0)
-		{
-			this.active = false;
-		}
-	};
-	
-	Particle.prototype.draw = function (ctx)
-	{
-		var curopacity = this.owner.opacity * this.opacity;
-		
-		if (curopacity === 0)
-			return;
-		
-		// Modify opacity for fade-out
-		if (this.owner.destroymode === 0)
-			curopacity *= 1 - (this.age / this.owner.timeout);
-			
-		ctx.globalAlpha = curopacity;
-			
-		var drawx = this.x - this.size / 2;
-		var drawy = this.y - this.size / 2;
-		
-		if (this.owner.runtime.pixel_rounding)
-		{
-			drawx = (drawx + 0.5) | 0;
-			drawy = (drawy + 0.5) | 0;
-		}
-		
-		var type = this.owner.type;
-		ctx.drawImage(type.texture_img, type.spriteX, type.spriteY, type.spriteWidth, type.spriteHeight, drawx, drawy, this.size, this.size);
-	};
-	
-	Particle.prototype.drawGL = function (glw)
-	{
-		var curopacity = this.owner.opacity * this.opacity;
-		
-		// Modify opacity for fade-out
-		if (this.owner.destroymode === 0)
-			curopacity *= 1 - (this.age / this.owner.timeout);
-		
-		var drawsize = this.size;
-		var scaleddrawsize = drawsize * this.owner.particlescale;
-		var drawx = this.x - drawsize / 2;
-		var drawy = this.y - drawsize / 2;
-		
-		if (this.owner.runtime.pixel_rounding)
-		{
-			drawx = (drawx + 0.5) | 0;
-			drawy = (drawy + 0.5) | 0;
-		}
-		
-		// Don't bother issuing a quad for a particle smaller than 1px, it probably won't be visible anyway.
-		if (scaleddrawsize < 1 || curopacity === 0)
-			return;
-			
-		// Quad if outside the allowed point range, otherwise issue a point.  Hopefully there won't be too much
-		// quad <-> point batch switching.  Note we have to manually scale particles which don't take in to account
-		// the layout zoom etc. otherwise.
-		if (scaleddrawsize < glw.minPointSize || scaleddrawsize > glw.maxPointSize)
-		{
-			glw.setOpacity(curopacity);
-			glw.quad(drawx, drawy, drawx + drawsize, drawy, drawx + drawsize, drawy + drawsize, drawx, drawy + drawsize);
-		}
-		else
-			glw.point(this.x, this.y, scaleddrawsize, curopacity);
-	};
-	
-	Particle.prototype.left = function ()
-	{
-		return this.x - this.size / 2;
-	};
-	
-	Particle.prototype.right = function ()
-	{
-		return this.x + this.size / 2;
-	};
-	
-	Particle.prototype.top = function ()
-	{
-		return this.y - this.size / 2;
-	};
-	
-	Particle.prototype.bottom = function ()
-	{
-		return this.y + this.size / 2;
-	};
-
-	/////////////////////////////////////
-	// Instance class
-	pluginProto.Instance = function(type)
-	{
-		this.type = type;
-		this.runtime = type.runtime;
-	};
-	
-	var instanceProto = pluginProto.Instance.prototype;
-	
-	// global array of particles to recycle
-	var deadparticles = [];
-
-	// called whenever an instance is created
-	instanceProto.onCreate = function()
-	{
-		var props = this.properties;
-		
-		this.rate = props[0];
-		this.spraycone = cr.to_radians(props[1]);
-		this.spraytype = props[2];			// 0 = continuous, 1 = one-shot
-		this.spraying = true;				// for continuous mode only
-		
-		this.initspeed = props[3];
-		this.initsize = props[4];
-		this.initopacity = props[5] / 100.0;
-		this.growrate = props[6];
-		this.xrandom = props[7];
-		this.yrandom = props[8];
-		this.speedrandom = props[9];
-		this.sizerandom = props[10];
-		this.growrandom = props[11];
-		this.acc = props[12];
-		this.g = props[13];
-		this.lifeanglerandom = props[14];
-		this.lifespeedrandom = props[15];
-		this.lifeopacityrandom = props[16];
-		this.destroymode = props[17];		// 0 = fade, 1 = timeout, 2 = stopped
-		this.timeout = props[18];
-		
-		this.particleCreateCounter = 0;
-		this.particlescale = 1;
-		
-		// Dynamically set the bounding box to surround all created particles
-		this.particleBoxLeft = this.x;
-		this.particleBoxTop = this.y;
-		this.particleBoxRight = this.x;
-		this.particleBoxBottom = this.y;
-		
-		this.add_bbox_changed_callback(function (self) {
-			self.bbox.set(self.particleBoxLeft, self.particleBoxTop, self.particleBoxRight, self.particleBoxBottom);
-			self.bquad.set_from_rect(self.bbox);
-			self.bbox_changed = false;
-			self.update_collision_cell();
-			self.update_render_cell();
-		});
-		
-		// Check for recycling
-		if (!this.recycled)
-			this.particles = [];
-		
-		this.runtime.tickMe(this);
-		
-		this.type.loadTextures();
-			
-		// If in one-shot mode, create all particles now
-		if (this.spraytype === 1)
-		{
-			for (var i = 0; i < this.rate; i++)
-				this.allocateParticle().opacity = 0;
-		}
-		
-		this.first_tick = true;		// for re-init'ing one-shot particles on first tick so they assume any new angle/position
-	};
-	
-	instanceProto.saveToJSON = function ()
-	{
-		var o = {
-			"r": this.rate,
-			"sc": this.spraycone,
-			"st": this.spraytype,
-			"s": this.spraying,
-			"isp": this.initspeed,
-			"isz": this.initsize,
-			"io": this.initopacity,
-			"gr": this.growrate,
-			"xr": this.xrandom,
-			"yr": this.yrandom,
-			"spr": this.speedrandom,
-			"szr": this.sizerandom,
-			"grnd": this.growrandom,
-			"acc": this.acc,
-			"g": this.g,
-			"lar": this.lifeanglerandom,
-			"lsr": this.lifespeedrandom,
-			"lor": this.lifeopacityrandom,
-			"dm": this.destroymode,
-			"to": this.timeout,
-			"pcc": this.particleCreateCounter,
-			"ft": this.first_tick,
-			"p": []
-		};
-		
-		var i, len, p;
-		var arr = o["p"];
-
-		for (i = 0, len = this.particles.length; i < len; i++)
-		{
-			p = this.particles[i];
-			arr.push([p.x, p.y, p.speed, p.angle, p.opacity, p.grow, p.size, p.gs, p.age]);
-		}
-		
-		return o;
-	};
-	
-	instanceProto.loadFromJSON = function (o)
-	{
-		this.rate = o["r"];
-		this.spraycone = o["sc"];
-		this.spraytype = o["st"];
-		this.spraying = o["s"];
-		this.initspeed = o["isp"];
-		this.initsize = o["isz"];
-		this.initopacity = o["io"];
-		this.growrate = o["gr"];
-		this.xrandom = o["xr"];
-		this.yrandom = o["yr"];
-		this.speedrandom = o["spr"];
-		this.sizerandom = o["szr"];
-		this.growrandom = o["grnd"];
-		this.acc = o["acc"];
-		this.g = o["g"];
-		this.lifeanglerandom = o["lar"];
-		this.lifespeedrandom = o["lsr"];
-		this.lifeopacityrandom = o["lor"];
-		this.destroymode = o["dm"];
-		this.timeout = o["to"];
-		this.particleCreateCounter = o["pcc"];
-		this.first_tick = o["ft"];
-		
-		// recycle all particles then load by reallocating them
-		deadparticles.push.apply(deadparticles, this.particles);
-		cr.clearArray(this.particles);
-		
-		var i, len, p, d;
-		var arr = o["p"];
-		
-		for (i = 0, len = arr.length; i < len; i++)
-		{
-			p = this.allocateParticle();
-			d = arr[i];
-			p.x = d[0];
-			p.y = d[1];
-			p.speed = d[2];
-			p.angle = d[3];
-			p.opacity = d[4];
-			p.grow = d[5];
-			p.size = d[6];
-			p.gs = d[7];
-			p.age = d[8];
-		}
-	};
-	
-	instanceProto.onDestroy = function ()
-	{
-		// recycle all particles
-		deadparticles.push.apply(deadparticles, this.particles);
-		cr.clearArray(this.particles);
-	};
-	
-	instanceProto.allocateParticle = function ()
-	{
-		var p;
-		
-		if (deadparticles.length)
-		{
-			p = deadparticles.pop();
-			p.owner = this;
-		}
-		else
-			p = new Particle(this);
-		
-		this.particles.push(p);
-		p.active = true;
-		return p;
-	};
-	
-	instanceProto.tick = function()
-	{
-		var dt = this.runtime.getDt(this);
-		
-		var i, len, p, n, j;
-		
-		// Create spray particles for this tick
-		if (this.spraytype === 0 && this.spraying)
-		{
-			this.particleCreateCounter += dt * this.rate;
-			
-			n = cr.floor(this.particleCreateCounter);
-			this.particleCreateCounter -= n;
-			
-			for (i = 0; i < n; i++)
-			{
-				p = this.allocateParticle();
-				p.init();
-			}
-		}
-		
-		this.particleBoxLeft = this.x;
-		this.particleBoxTop = this.y;
-		this.particleBoxRight = this.x;
-		this.particleBoxBottom = this.y;
-		
-		for (i = 0, j = 0, len = this.particles.length; i < len; i++)
-		{
-			p = this.particles[i];
-			this.particles[j] = p;
-			
-			this.runtime.redraw = true;
-			
-			// If the first tick for one-shot particles, call init() now so the particles
-			// assume any changed position or angle of the Particles object.
-			if (this.spraytype === 1 && this.first_tick)
-				p.init();
-			
-			p.tick(dt);
-			
-			// Particle is dead: move to deadparticles for later recycling
-			if (!p.active)
-			{
-				deadparticles.push(p);
-				continue;
-			}
-			
-			// measure bounding box
-			if (p.left() < this.particleBoxLeft)
-				this.particleBoxLeft = p.left();
-			if (p.right() > this.particleBoxRight)
-				this.particleBoxRight = p.right();
-			if (p.top() < this.particleBoxTop)
-				this.particleBoxTop = p.top();
-			if (p.bottom() > this.particleBoxBottom)
-				this.particleBoxBottom = p.bottom();
-			
-			j++;
-		}
-		
-		cr.truncateArray(this.particles, j);
-		
-		// Update the bounding box based on active particles
-		this.set_bbox_changed();
-		
-		this.first_tick = false;
-		
-		// If one-shot and all particles are dead, destroy the whole object
-		if (this.spraytype === 1 && this.particles.length === 0)
-			this.runtime.DestroyInstance(this);
-	};
-	
-	// only called if a layout object - draw to a canvas 2D context
-	instanceProto.draw = function (ctx)
-	{
-		var i, len, p, layer = this.layer;
-		
-		for (i = 0, len = this.particles.length; i < len; i++)
-		{
-			p = this.particles[i];
-			
-			// Only draw active and on-screen particles
-			if (p.right() >= layer.viewLeft && p.bottom() >= layer.viewTop && p.left() <= layer.viewRight && p.top() <= layer.viewBottom)
-			{
-				p.draw(ctx);
-			}
-		}
-	};
-	
-	// only called if a layout object in WebGL mode - draw to the WebGL context
-	// 'glw' is not a WebGL context, it's a wrapper - you can find its methods in GLWrap.js in the install
-	// directory or just copy what other plugins do.
-	instanceProto.drawGL = function (glw)
-	{
-		this.particlescale = this.layer.getScale();
-		glw.setTexture(this.type.webGL_texture);
-		
-		var i, len, p, layer = this.layer;
-		
-		for (i = 0, len = this.particles.length; i < len; i++)
-		{
-			p = this.particles[i];
-			
-			// Only draw active and on-screen particles
-			if (p.right() >= layer.viewLeft && p.bottom() >= layer.viewTop && p.left() <= layer.viewRight && p.top() <= layer.viewBottom)
-			{
-				p.drawGL(glw);
-			}
-		}
-	};
-	
-
-	//////////////////////////////////////
-	// Conditions
-	function Cnds() {};
-
-	// the example condition
-	Cnds.prototype.IsSpraying = function ()
-	{
-		return this.spraying;
-	};
-	
-	pluginProto.cnds = new Cnds();
-	
-	//////////////////////////////////////
-	// Actions
-	function Acts() {};
-
-	Acts.prototype.SetSpraying = function (set_)
-	{
-		this.spraying = (set_ !== 0);
-	};
-	
-	Acts.prototype.SetEffect = function (effect)
-	{
-		this.blend_mode = effect;
-		this.compositeOp = cr.effectToCompositeOp(effect);
-		cr.setGLBlend(this, effect, this.runtime.gl);
-		this.runtime.redraw = true;
-	};
-	
-	Acts.prototype.SetRate = function (x)
-	{
-		this.rate = x;
-		var diff, i;
-		
-		// In one-shot mode, if still in the first tick, adjust the number of particles created 
-		if (this.spraytype === 1 && this.first_tick)
-		{
-			// Reducing particle count
-			if (x < this.particles.length)
-			{
-				diff = this.particles.length - x;
-				
-				for (i = 0; i < diff; i++)
-					deadparticles.push(this.particles.pop());
-			}
-			// Increasing particle count
-			else if (x > this.particles.length)
-			{
-				diff = x - this.particles.length;
-				
-				for (i = 0; i < diff; i++)
-					this.allocateParticle().opacity = 0;
-			}
-		}
-	};
-	
-	Acts.prototype.SetSprayCone = function (x)
-	{
-		this.spraycone = cr.to_radians(x);
-	};
-	
-	Acts.prototype.SetInitSpeed = function (x)
-	{
-		this.initspeed = x;
-	};
-	
-	Acts.prototype.SetInitSize = function (x)
-	{
-		this.initsize = x;
-	};
-	
-	Acts.prototype.SetInitOpacity = function (x)
-	{
-		this.initopacity = x / 100;
-	};
-	
-	Acts.prototype.SetGrowRate = function (x)
-	{
-		this.growrate = x;
-	};
-	
-	Acts.prototype.SetXRandomiser = function (x)
-	{
-		this.xrandom = x;
-	};
-	
-	Acts.prototype.SetYRandomiser = function (x)
-	{
-		this.yrandom = x;
-	};
-	
-	Acts.prototype.SetSpeedRandomiser = function (x)
-	{
-		this.speedrandom = x;
-	};
-	
-	Acts.prototype.SetSizeRandomiser = function (x)
-	{
-		this.sizerandom = x;
-	};
-	
-	Acts.prototype.SetGrowRateRandomiser = function (x)
-	{
-		this.growrandom = x;
-	};
-	
-	Acts.prototype.SetParticleAcc = function (x)
-	{
-		this.acc = x;
-	};
-	
-	Acts.prototype.SetGravity = function (x)
-	{
-		this.g = x;
-	};
-	
-	Acts.prototype.SetAngleRandomiser = function (x)
-	{
-		this.lifeanglerandom = x;
-	};
-	
-	Acts.prototype.SetLifeSpeedRandomiser = function (x)
-	{
-		this.lifespeedrandom = x;
-	};
-	
-	Acts.prototype.SetOpacityRandomiser = function (x)
-	{
-		this.lifeopacityrandom = x;
-	};
-	
-	Acts.prototype.SetTimeout = function (x)
-	{
-		this.timeout = x;
-	};
-	
-	pluginProto.acts = new Acts();
-	
-	//////////////////////////////////////
-	// Expressions
-	function Exps() {};
-	
-	Exps.prototype.ParticleCount = function (ret)
-	{
-		ret.set_int(this.particles.length);
-	};
-	
-	Exps.prototype.Rate = function (ret)
-	{
-		ret.set_float(this.rate);
-	};
-	
-	Exps.prototype.SprayCone = function (ret)
-	{
-		ret.set_float(cr.to_degrees(this.spraycone));
-	};
-	
-	Exps.prototype.InitSpeed = function (ret)
-	{
-		ret.set_float(this.initspeed);
-	};
-	
-	Exps.prototype.InitSize = function (ret)
-	{
-		ret.set_float(this.initsize);
-	};
-	
-	Exps.prototype.InitOpacity = function (ret)
-	{
-		ret.set_float(this.initopacity * 100);
-	};
-	
-	Exps.prototype.InitGrowRate = function (ret)
-	{
-		ret.set_float(this.growrate);
-	};
-	
-	Exps.prototype.XRandom = function (ret)
-	{
-		ret.set_float(this.xrandom);
-	};
-	
-	Exps.prototype.YRandom = function (ret)
-	{
-		ret.set_float(this.yrandom);
-	};
-	
-	Exps.prototype.InitSpeedRandom = function (ret)
-	{
-		ret.set_float(this.speedrandom);
-	};
-	
-	Exps.prototype.InitSizeRandom = function (ret)
-	{
-		ret.set_float(this.sizerandom);
-	};
-	
-	Exps.prototype.InitGrowRandom = function (ret)
-	{
-		ret.set_float(this.growrandom);
-	};
-	
-	Exps.prototype.ParticleAcceleration = function (ret)
-	{
-		ret.set_float(this.acc);
-	};
-	
-	Exps.prototype.Gravity = function (ret)
-	{
-		ret.set_float(this.g);
-	};
-	
-	Exps.prototype.ParticleAngleRandom = function (ret)
-	{
-		ret.set_float(this.lifeanglerandom);
-	};
-	
-	Exps.prototype.ParticleSpeedRandom = function (ret)
-	{
-		ret.set_float(this.lifespeedrandom);
-	};
-	
-	Exps.prototype.ParticleOpacityRandom = function (ret)
-	{
-		ret.set_float(this.lifeopacityrandom);
-	};
-	
-	Exps.prototype.Timeout = function (ret)
-	{
-		ret.set_float(this.timeout);
-	};
-	
-	pluginProto.exps = new Exps();
-
-}());
-
-// Button
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Plugin class
-cr.plugins_.Button = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	/////////////////////////////////////
-	var pluginProto = cr.plugins_.Button.prototype;
-		
-	/////////////////////////////////////
-	// Object type class
-	pluginProto.Type = function(plugin)
-	{
-		this.plugin = plugin;
-		this.runtime = plugin.runtime;
-	};
-
-	var typeProto = pluginProto.Type.prototype;
-
-	// called on startup for each object type
-	typeProto.onCreate = function()
-	{
-	};
-
-	/////////////////////////////////////
-	// Instance class
-	pluginProto.Instance = function(type)
-	{
-		this.type = type;
-		this.runtime = type.runtime;
-	};
-	
-	var instanceProto = pluginProto.Instance.prototype;
-
-	// called whenever an instance is created
-	instanceProto.onCreate = function()
-	{
-		this.isCheckbox = (this.properties[0] === 1);
-		
-		this.inputElem = document.createElement("input");
-		
-		if (this.isCheckbox)
-			this.elem = document.createElement("label");
-		else
-			this.elem = this.inputElem;
-			
-		this.labelText = null;
-		
-		this.inputElem.type = (this.isCheckbox ? "checkbox" : "button");
-		this.inputElem.id = this.properties[7];
-		document.body.appendChild(this.elem);
-		
-		if (this.isCheckbox)
-		{
-			this.elem.appendChild(this.inputElem);
-			this.labelText = document.createTextNode(this.properties[1]);
-			this.elem.appendChild(this.labelText);
-			
-			this.inputElem.checked = this.properties[6];
-			
-			// Avoid yucky serif font for checkbox labels
-			this.elem.style.fontFamily = "sans-serif";
-			
-			// Allow setting width and height on label
-			this.elem.style.display = "inline-block";
-			this.elem.style.color = "black";
-		}
-		else
-			this.inputElem.value = this.properties[1];
-		
-		this.elem.title = this.properties[2];
-		this.inputElem.disabled = !this.properties[4];
-		
-		this.autoFontSize = this.properties[5];
-		this.element_hidden = false;
-		
-		if (!this.properties[3])		// initially invisible
-		{
-			this.elem.style.display = "none";
-			this.visible = false;
-			this.element_hidden = true;
-		}
-		
-		this.inputElem.onclick = (function (self) {
-			return function(e) {
-				e.stopPropagation();
-				
-				self.runtime.isInUserInputEvent = true;
-				self.runtime.trigger(cr.plugins_.Button.prototype.cnds.OnClicked, self);
-				self.runtime.isInUserInputEvent = false;
-			};
-		})(this);
-		
-		// Prevent touches reaching the canvas
-		this.elem.addEventListener("touchstart", function (e) {
-			e.stopPropagation();
-		}, false);
-		
-		this.elem.addEventListener("touchmove", function (e) {
-			e.stopPropagation();
-		}, false);
-		
-		this.elem.addEventListener("touchend", function (e) {
-			e.stopPropagation();
-		}, false);
-		
-		// Prevent clicks being blocked
-		this.elem.addEventListener("mousedown", function (e) {
-			e.stopPropagation();
-		});
-		
-		this.elem.addEventListener("mouseup", function (e) {
-			e.stopPropagation();
-		});
-		
-		// Prevent key presses being blocked by the Keyboard object
-		this.elem.addEventListener("keydown", function (e) {
-			e.stopPropagation();
-		});
-		
-		this.elem.addEventListener("keyup", function (e) {
-			e.stopPropagation();
-		});
-		
-		this.lastLeft = 0;
-		this.lastTop = 0;
-		this.lastRight = 0;
-		this.lastBottom = 0;
-		this.lastWinWidth = 0;
-		this.lastWinHeight = 0;
-			
-		this.updatePosition(true);
-		
-		this.runtime.tickMe(this);
-	};
-	
-	instanceProto.saveToJSON = function ()
-	{
-		var o = {
-			"tooltip": this.elem.title,
-			"disabled": !!this.inputElem.disabled
-		};
-			
-		if (this.isCheckbox)
-		{
-			o["checked"] = !!this.inputElem.checked;
-			o["text"] = this.labelText.nodeValue;
-		}
-		else
-		{
-			o["text"] = this.elem.value;
-		}
-		
-		return o;
-	};
-	
-	instanceProto.loadFromJSON = function (o)
-	{
-		this.elem.title = o["tooltip"];
-		this.inputElem.disabled = o["disabled"];
-		
-		if (this.isCheckbox)
-		{
-			this.inputElem.checked = o["checked"];
-			this.labelText.nodeValue = o["text"];
-		}
-		else
-		{
-			this.elem.value = o["text"];
-		}
-	};
-	
-	instanceProto.onDestroy = function ()
-	{
-		this.elem.parentElement.removeChild(this.elem);
-		this.elem = null;
-	};
-	
-	instanceProto.tick = function ()
-	{
-		this.updatePosition();
-	};
-	
-	var last_canvas_offset = null;
-	var last_checked_tick = -1;
-	
-	instanceProto.updatePosition = function (first)
-	{
-		var left = this.layer.layerToCanvas(this.x, this.y, true);
-		var top = this.layer.layerToCanvas(this.x, this.y, false);
-		var right = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, true);
-		var bottom = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, false);
-		
-		var rightEdge = this.runtime.width / this.runtime.devicePixelRatio;
-		var bottomEdge = this.runtime.height / this.runtime.devicePixelRatio;
-		
-		// Is entirely offscreen or invisible: hide
-		if (!this.visible || !this.layer.visible || right <= 0 || bottom <= 0 || left >= rightEdge || top >= bottomEdge)
-		{
-			if (!this.element_hidden)
-				this.elem.style.display = "none";
-			
-			this.element_hidden = true;
-			return;
-		}
-		
-		// Truncate to canvas size
-		if (left < 1)
-			left = 1;
-		if (top < 1)
-			top = 1;
-		if (right >= rightEdge)
-			right = rightEdge - 1;
-		if (bottom >= bottomEdge)
-			bottom = bottomEdge - 1;
-		
-		var curWinWidth = window.innerWidth;
-		var curWinHeight = window.innerHeight;
-			
-		// Avoid redundant updates
-		if (!first && this.lastLeft === left && this.lastTop === top && this.lastRight === right && this.lastBottom === bottom && this.lastWinWidth === curWinWidth && this.lastWinHeight === curWinHeight)
-		{
-			if (this.element_hidden)
-			{
-				this.elem.style.display = "";
-				this.element_hidden = false;
-			}
-			
-			return;
-		}
-			
-		this.lastLeft = left;
-		this.lastTop = top;
-		this.lastRight = right;
-		this.lastBottom = bottom;
-		this.lastWinWidth = curWinWidth;
-		this.lastWinHeight = curWinHeight;
-		
-		if (this.element_hidden)
-		{
-			this.elem.style.display = "";
-			this.element_hidden = false;
-		}
-		
-		var offx = Math.round(left) + this.runtime.canvas.offsetLeft;
-		var offy = Math.round(top) + this.runtime.canvas.offsetTop;
-		this.elem.style.position = "absolute";
-		this.elem.style.left = offx + "px";
-		this.elem.style.top = offy + "px";
-		this.elem.style.width = Math.round(right - left) + "px";
-		this.elem.style.height = Math.round(bottom - top) + "px";
-		
-		if (this.autoFontSize)
-			this.elem.style.fontSize = ((this.layer.getScale(true) / this.runtime.devicePixelRatio) - 0.2) + "em";
-	};
-	
-	// only called if a layout object
-	instanceProto.draw = function(ctx)
-	{
-	};
-	
-	instanceProto.drawGL = function(glw)
-	{
-	};
-	
-
-	//////////////////////////////////////
-	// Conditions
-	function Cnds() {};
-	
-	Cnds.prototype.OnClicked = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.IsChecked = function ()
-	{
-		return this.isCheckbox && this.inputElem.checked;
-	};
-	
-	Cnds.prototype.CompareText = function(text_to_compare, case_sensitive)
-	{
-		var text;
-		if (this.isCheckbox)
-			text = this.labelText.nodeValue;
-		else
-			text = this.elem.value;
-			
-		if (case_sensitive)
-			return text == text_to_compare;
-		else
-			return cr.equals_nocase(text, text_to_compare);
-	};
-	
-	pluginProto.cnds = new Cnds();
-	
-	//////////////////////////////////////
-	// Actions
-	function Acts() {};
-
-	Acts.prototype.SetText = function (text)
-	{
-		if (this.isCheckbox)
-			this.labelText.nodeValue = text;
-		else
-			this.elem.value = text;
-	};
-	
-	Acts.prototype.SetTooltip = function (text)
-	{
-		this.elem.title = text;
-	};
-	
-	Acts.prototype.SetVisible = function (vis)
-	{
-		this.visible = (vis !== 0);
-	};
-	
-	Acts.prototype.SetEnabled = function (en)
-	{
-		this.inputElem.disabled = (en === 0);
-	};
-	
-	Acts.prototype.SetFocus = function ()
-	{
-		this.inputElem.focus();
-	};
-	
-	Acts.prototype.SetBlur = function ()
-	{
-		this.inputElem.blur();
-	};
-	
-	Acts.prototype.SetCSSStyle = function (p, v)
-	{
-		this.elem.style[cr.cssToCamelCase(p)] = v;
-	};
-	
-	Acts.prototype.SetChecked = function (c)
-	{
-		if (!this.isCheckbox)
-			return;
-			
-		this.inputElem.checked = (c === 1);
-	};
-	
-	Acts.prototype.ToggleChecked = function ()
-	{
-		if (!this.isCheckbox)
-			return;
-			
-		this.inputElem.checked = !this.inputElem.checked;
-	};
-	
-	pluginProto.acts = new Acts();
-	
-	//////////////////////////////////////
-	// Expressions
-	function Exps() {};
-	
-	Exps.prototype.Text = function (ret)
-	{
-		if (this.isCheckbox)
-			ret.set_string(this.labelText.nodeValue);
-		else
-			ret.set_string(this.elem.value);
-	}
-	
-	pluginProto.exps = new Exps();
-
-}());
-
 // Audio
 // ECMAScript 5 strict mode
 
@@ -30824,6 +25679,2433 @@ cr.plugins_.Audio = function(runtime)
 
 }());
 
+// Sprite
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Plugin class
+cr.plugins_.Sprite = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	var pluginProto = cr.plugins_.Sprite.prototype;
+		
+	/////////////////////////////////////
+	// Object type class
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+
+	var typeProto = pluginProto.Type.prototype;
+	
+	function frame_getDataUri()
+	{
+		if (this.datauri.length === 0)
+		{		
+			// Get Sprite image as data URI
+			var tmpcanvas = document.createElement("canvas");
+			tmpcanvas.width = this.width;
+			tmpcanvas.height = this.height;
+			var tmpctx = tmpcanvas.getContext("2d");
+			
+			if (this.spritesheeted)
+			{
+				tmpctx.drawImage(this.texture_img, this.offx, this.offy, this.width, this.height,
+										 0, 0, this.width, this.height);
+			}
+			else
+			{
+				tmpctx.drawImage(this.texture_img, 0, 0, this.width, this.height);
+			}
+			
+			this.datauri = tmpcanvas.toDataURL("image/png");
+		}
+		
+		return this.datauri;
+	};
+
+	typeProto.onCreate = function()
+	{
+		if (this.is_family)
+			return;
+			
+		var i, leni, j, lenj;
+		var anim, frame, animobj, frameobj, wt, uv;
+		
+		this.all_frames = [];
+		this.has_loaded_textures = false;
+		
+		// Load all animation frames
+		for (i = 0, leni = this.animations.length; i < leni; i++)
+		{
+			anim = this.animations[i];
+			animobj = {};
+			animobj.name = anim[0];
+			animobj.speed = anim[1];
+			animobj.loop = anim[2];
+			animobj.repeatcount = anim[3];
+			animobj.repeatto = anim[4];
+			animobj.pingpong = anim[5];
+			animobj.sid = anim[6];
+			animobj.frames = [];
+			
+			for (j = 0, lenj = anim[7].length; j < lenj; j++)
+			{
+				frame = anim[7][j];
+				frameobj = {};
+				frameobj.texture_file = frame[0];
+				frameobj.texture_filesize = frame[1];
+				frameobj.offx = frame[2];
+				frameobj.offy = frame[3];
+				frameobj.width = frame[4];
+				frameobj.height = frame[5];
+				frameobj.duration = frame[6];
+				frameobj.hotspotX = frame[7];
+				frameobj.hotspotY = frame[8];
+				frameobj.image_points = frame[9];
+				frameobj.poly_pts = frame[10];
+				frameobj.pixelformat = frame[11];
+				frameobj.spritesheeted = (frameobj.width !== 0);
+				frameobj.datauri = "";		// generated on demand and cached
+				frameobj.getDataUri = frame_getDataUri;
+				
+				uv = {};
+				uv.left = 0;
+				uv.top = 0;
+				uv.right = 1;
+				uv.bottom = 1;
+				frameobj.sheetTex = uv;
+				
+				frameobj.webGL_texture = null;
+				
+				// Sprite sheets may mean multiple frames reference one image
+				// Ensure image is not created in duplicate
+				wt = this.runtime.findWaitingTexture(frame[0]);
+				
+				if (wt)
+				{
+					frameobj.texture_img = wt;
+				}
+				else
+				{
+					frameobj.texture_img = new Image();
+					frameobj.texture_img.cr_src = frame[0];
+					frameobj.texture_img.cr_filesize = frame[1];
+					frameobj.texture_img.c2webGL_texture = null;
+					
+					// Tell runtime to wait on this texture
+					this.runtime.waitForImageLoad(frameobj.texture_img, frame[0]);
+				}
+				
+				cr.seal(frameobj);
+				animobj.frames.push(frameobj);
+				this.all_frames.push(frameobj);
+			}
+			
+			cr.seal(animobj);
+			this.animations[i] = animobj;		// swap array data for object
+		}
+	};
+	
+	typeProto.updateAllCurrentTexture = function ()
+	{
+		var i, len, inst;
+		for (i = 0, len = this.instances.length; i < len; i++)
+		{
+			inst = this.instances[i];
+			inst.curWebGLTexture = inst.curFrame.webGL_texture;
+		}
+	};
+	
+	typeProto.onLostWebGLContext = function ()
+	{
+		if (this.is_family)
+			return;
+			
+		var i, len, frame;
+		
+		// Release all animation frames
+		for (i = 0, len = this.all_frames.length; i < len; ++i)
+		{
+			frame = this.all_frames[i];
+			frame.texture_img.c2webGL_texture = null;
+			frame.webGL_texture = null;
+		}
+		
+		this.has_loaded_textures = false;
+		
+		this.updateAllCurrentTexture();
+	};
+	
+	typeProto.onRestoreWebGLContext = function ()
+	{
+		// No need to create textures if no instances exist, will create on demand
+		if (this.is_family || !this.instances.length)
+			return;
+			
+		var i, len, frame;
+		
+		// Re-load all animation frames
+		for (i = 0, len = this.all_frames.length; i < len; ++i)
+		{
+			frame = this.all_frames[i];
+			
+			frame.webGL_texture = this.runtime.glwrap.loadTexture(frame.texture_img, false, this.runtime.linearSampling, frame.pixelformat);
+		}
+		
+		this.updateAllCurrentTexture();
+	};
+	
+	typeProto.loadTextures = function ()
+	{
+		if (this.is_family || this.has_loaded_textures || !this.runtime.glwrap)
+			return;
+			
+		var i, len, frame;
+		for (i = 0, len = this.all_frames.length; i < len; ++i)
+		{
+			frame = this.all_frames[i];
+			
+			frame.webGL_texture = this.runtime.glwrap.loadTexture(frame.texture_img, false, this.runtime.linearSampling, frame.pixelformat);
+		}
+		
+		this.has_loaded_textures = true;
+	};
+	
+	typeProto.unloadTextures = function ()
+	{
+		// Don't release textures if any instances still exist, they are probably using them
+		if (this.is_family || this.instances.length || !this.has_loaded_textures)
+			return;
+			
+		var i, len, frame;
+		for (i = 0, len = this.all_frames.length; i < len; ++i)
+		{
+			frame = this.all_frames[i];
+			
+			this.runtime.glwrap.deleteTexture(frame.webGL_texture);
+			frame.webGL_texture = null;
+		}
+		
+		this.has_loaded_textures = false;
+	};
+	
+	var already_drawn_images = [];
+	
+	typeProto.preloadCanvas2D = function (ctx)
+	{
+		var i, len, frameimg;
+		cr.clearArray(already_drawn_images);
+		
+		for (i = 0, len = this.all_frames.length; i < len; ++i)
+		{
+			frameimg = this.all_frames[i].texture_img;
+			
+			if (already_drawn_images.indexOf(frameimg) !== -1)
+					continue;
+				
+			// draw to preload, browser should lazy load the texture
+			ctx.drawImage(frameimg, 0, 0);
+			already_drawn_images.push(frameimg);
+		}
+	};
+
+	/////////////////////////////////////
+	// Instance class
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+		
+		// Physics needs to see the collision poly before onCreate
+		var poly_pts = this.type.animations[0].frames[0].poly_pts;
+		
+		if (this.recycled)
+			this.collision_poly.set_pts(poly_pts);
+		else
+			this.collision_poly = new cr.CollisionPoly(poly_pts);
+	};
+	
+	var instanceProto = pluginProto.Instance.prototype;
+
+	instanceProto.onCreate = function()
+	{
+		this.visible = this.properties[0];
+		this.isTicking = false;
+		this.inAnimTrigger = false;
+		this.collisionsEnabled = this.properties[3];
+		
+		this.cur_animation = this.getAnimationByName(this.properties[1]) || this.type.animations[0];
+		this.cur_frame = this.properties[2];
+		
+		if (this.cur_frame < 0)
+			this.cur_frame = 0;
+		if (this.cur_frame >= this.cur_animation.frames.length)
+			this.cur_frame = this.cur_animation.frames.length - 1;
+			
+		// Update poly and hotspot for the starting frame.
+		var curanimframe = this.cur_animation.frames[this.cur_frame];
+		this.collision_poly.set_pts(curanimframe.poly_pts);
+		this.hotspotX = curanimframe.hotspotX;
+		this.hotspotY = curanimframe.hotspotY;
+		
+		this.animForwards = (this.cur_animation.speed >= 0);
+		this.cur_anim_speed = Math.abs(this.cur_animation.speed);
+		this.cur_anim_repeatto = this.cur_animation.repeatto;
+		
+		// Tick this object to change animation frame, but never tick single-animation, single-frame objects.
+		// Also don't tick zero speed animations until the speed or animation is changed, which saves ticking
+		// on tile sprites.
+		if (!(this.type.animations.length === 1 && this.type.animations[0].frames.length === 1) && this.cur_anim_speed !== 0)
+		{
+			this.runtime.tickMe(this);
+			this.isTicking = true;
+		}
+		
+		if (this.recycled)
+			this.animTimer.reset();
+		else
+			this.animTimer = new cr.KahanAdder();
+		
+		this.frameStart = this.getNowTime();
+		this.animPlaying = true;
+		this.animRepeats = 0;
+		this.animTriggerName = "";
+		
+		this.changeAnimName = "";
+		this.changeAnimFrom = 0;
+		this.changeAnimFrame = -1;
+		
+		// Ensure type has textures loaded
+		this.type.loadTextures();
+		
+		// Iterate all animations and frames ensuring WebGL textures are loaded and sizes are set
+		var i, leni, j, lenj;
+		var anim, frame, uv, maintex;
+		
+		for (i = 0, leni = this.type.animations.length; i < leni; i++)
+		{
+			anim = this.type.animations[i];
+			
+			for (j = 0, lenj = anim.frames.length; j < lenj; j++)
+			{
+				frame = anim.frames[j];
+				
+				// If size is zero, image is not on a sprite sheet.  Determine size now.
+				if (frame.width === 0)
+				{
+					frame.width = frame.texture_img.width;
+					frame.height = frame.texture_img.height;
+				}
+				
+				// If frame is spritesheeted update its uv coords
+				if (frame.spritesheeted)
+				{
+					maintex = frame.texture_img;
+					uv = frame.sheetTex;
+					uv.left = frame.offx / maintex.width;
+					uv.top = frame.offy / maintex.height;
+					uv.right = (frame.offx + frame.width) / maintex.width;
+					uv.bottom = (frame.offy + frame.height) / maintex.height;
+
+					// Check if frame is in fact a complete-frame spritesheet
+					if (frame.offx === 0 && frame.offy === 0 && frame.width === maintex.width && frame.height === maintex.height)
+					{
+						frame.spritesheeted = false;
+					}
+				}
+			}
+		}
+		
+		this.curFrame = this.cur_animation.frames[this.cur_frame];
+		this.curWebGLTexture = this.curFrame.webGL_texture;
+	};
+	
+	instanceProto.saveToJSON = function ()
+	{
+		var o = {
+			"a": this.cur_animation.sid,
+			"f": this.cur_frame,
+			"cas": this.cur_anim_speed,
+			"fs": this.frameStart,
+			"ar": this.animRepeats,
+			"at": this.animTimer.sum,
+			"rt": this.cur_anim_repeatto
+		};
+		
+		if (!this.animPlaying)
+			o["ap"] = this.animPlaying;
+			
+		if (!this.animForwards)
+			o["af"] = this.animForwards;
+		
+		return o;
+	};
+	
+	instanceProto.loadFromJSON = function (o)
+	{
+		var anim = this.getAnimationBySid(o["a"]);
+		
+		if (anim)
+			this.cur_animation = anim;
+		
+		this.cur_frame = o["f"];
+		
+		if (this.cur_frame < 0)
+			this.cur_frame = 0;
+		if (this.cur_frame >= this.cur_animation.frames.length)
+			this.cur_frame = this.cur_animation.frames.length - 1;
+		
+		this.cur_anim_speed = o["cas"];
+		this.frameStart = o["fs"];
+		this.animRepeats = o["ar"];
+		this.animTimer.reset();
+		this.animTimer.sum = o["at"];
+		this.animPlaying = o.hasOwnProperty("ap") ? o["ap"] : true;
+		this.animForwards = o.hasOwnProperty("af") ? o["af"] : true;
+		
+		if (o.hasOwnProperty("rt"))
+			this.cur_anim_repeatto = o["rt"];
+		else
+			this.cur_anim_repeatto = this.cur_animation.repeatto;
+			
+		this.curFrame = this.cur_animation.frames[this.cur_frame];
+		this.curWebGLTexture = this.curFrame.webGL_texture;
+		this.collision_poly.set_pts(this.curFrame.poly_pts);
+		this.hotspotX = this.curFrame.hotspotX;
+		this.hotspotY = this.curFrame.hotspotY;
+	};
+	
+	instanceProto.animationFinish = function (reverse)
+	{
+		// stop
+		this.cur_frame = reverse ? 0 : this.cur_animation.frames.length - 1;
+		this.animPlaying = false;
+		
+		// trigger finish events
+		this.animTriggerName = this.cur_animation.name;
+		
+		this.inAnimTrigger = true;
+		this.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnAnyAnimFinished, this);
+		this.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnAnimFinished, this);
+		this.inAnimTrigger = false;
+			
+		this.animRepeats = 0;
+	};
+	
+	instanceProto.getNowTime = function()
+	{
+		return this.animTimer.sum;
+	};
+	
+	instanceProto.tick = function()
+	{
+		this.animTimer.add(this.runtime.getDt(this));
+		
+		// Change any animation or frame that was queued
+		if (this.changeAnimName.length)
+			this.doChangeAnim();
+		if (this.changeAnimFrame >= 0)
+			this.doChangeAnimFrame();
+		
+		var now = this.getNowTime();
+		var cur_animation = this.cur_animation;
+		var prev_frame = cur_animation.frames[this.cur_frame];
+		var next_frame;
+		var cur_frame_time = prev_frame.duration / this.cur_anim_speed;
+		
+		if (this.animPlaying && now >= this.frameStart + cur_frame_time)
+		{			
+			// Next frame
+			if (this.animForwards)
+			{
+				this.cur_frame++;
+				//log("Advancing animation frame forwards");
+			}
+			else
+			{
+				this.cur_frame--;
+				//log("Advancing animation frame backwards");
+			}
+				
+			this.frameStart += cur_frame_time;
+			
+			// Reached end of frames
+			if (this.cur_frame >= cur_animation.frames.length)
+			{
+				//log("At end of frames");
+				
+				if (cur_animation.pingpong)
+				{
+					this.animForwards = false;
+					this.cur_frame = cur_animation.frames.length - 2;
+					//log("Ping pong looping from end");
+				}
+				// Looping: wind back to repeat-to frame
+				else if (cur_animation.loop)
+				{
+					this.cur_frame = this.cur_anim_repeatto;
+				}
+				else
+				{					
+					this.animRepeats++;
+					
+					if (this.animRepeats >= cur_animation.repeatcount)
+					{
+						//log("Number of repeats reached; ending animation");
+						
+						this.animationFinish(false);
+					}
+					else
+					{
+						//log("Repeating");
+						this.cur_frame = this.cur_anim_repeatto;
+					}
+				}
+			}
+			// Ping-ponged back to start
+			if (this.cur_frame < 0)
+			{
+				if (cur_animation.pingpong)
+				{
+					this.cur_frame = 1;
+					this.animForwards = true;
+					//log("Ping ponging back forwards");
+					
+					if (!cur_animation.loop)
+					{
+						this.animRepeats++;
+							
+						if (this.animRepeats >= cur_animation.repeatcount)
+						{
+							//log("Number of repeats reached; ending animation");
+							
+							this.animationFinish(true);
+						}
+					}
+				}
+				// animation running backwards
+				else
+				{
+					if (cur_animation.loop)
+					{
+						this.cur_frame = this.cur_anim_repeatto;
+					}
+					else
+					{
+						this.animRepeats++;
+						
+						// Reached number of repeats
+						if (this.animRepeats >= cur_animation.repeatcount)
+						{
+							//log("Number of repeats reached; ending animation");
+							
+							this.animationFinish(true);
+						}
+						else
+						{
+							//log("Repeating");
+							this.cur_frame = this.cur_anim_repeatto;
+						}
+					}
+				}
+			}
+			
+			// Don't go out of bounds
+			if (this.cur_frame < 0)
+				this.cur_frame = 0;
+			else if (this.cur_frame >= cur_animation.frames.length)
+				this.cur_frame = cur_animation.frames.length - 1;
+				
+			// If frameStart is still more than a whole frame away, we must've fallen behind.  Instead of
+			// going catch-up (cycling one frame per tick), reset the frame timer to now.
+			if (now > this.frameStart + (cur_animation.frames[this.cur_frame].duration / this.cur_anim_speed))
+			{
+				//log("Animation can't keep up, resetting timer");
+				this.frameStart = now;
+			}
+				
+			next_frame = cur_animation.frames[this.cur_frame];
+			this.OnFrameChanged(prev_frame, next_frame);
+				
+			this.runtime.redraw = true;
+		}
+	};
+	
+	instanceProto.getAnimationByName = function (name_)
+	{
+		var i, len, a;
+		for (i = 0, len = this.type.animations.length; i < len; i++)
+		{
+			a = this.type.animations[i];
+			
+			if (cr.equals_nocase(a.name, name_))
+				return a;
+		}
+		
+		return null;
+	};
+	
+	instanceProto.getAnimationBySid = function (sid_)
+	{
+		var i, len, a;
+		for (i = 0, len = this.type.animations.length; i < len; i++)
+		{
+			a = this.type.animations[i];
+			
+			if (a.sid === sid_)
+				return a;
+		}
+		
+		return null;
+	};
+	
+	instanceProto.doChangeAnim = function ()
+	{
+		var prev_frame = this.cur_animation.frames[this.cur_frame];
+		
+		// Find the animation by name
+		var anim = this.getAnimationByName(this.changeAnimName);
+		
+		this.changeAnimName = "";
+		
+		// couldn't find by name
+		if (!anim)
+			return;
+			
+		// don't change if setting same animation and the animation is already playing
+		if (cr.equals_nocase(anim.name, this.cur_animation.name) && this.animPlaying)
+			return;
+			
+		this.cur_animation = anim;
+		this.animForwards = (anim.speed >= 0);
+		this.cur_anim_speed = Math.abs(anim.speed);
+		this.cur_anim_repeatto = anim.repeatto;
+		
+		if (this.cur_frame < 0)
+			this.cur_frame = 0;
+		if (this.cur_frame >= this.cur_animation.frames.length)
+			this.cur_frame = this.cur_animation.frames.length - 1;
+			
+		// from beginning
+		if (this.changeAnimFrom === 1)
+			this.cur_frame = 0;
+			
+		this.animPlaying = true;
+		this.frameStart = this.getNowTime();
+		
+		this.OnFrameChanged(prev_frame, this.cur_animation.frames[this.cur_frame]);
+		
+		this.runtime.redraw = true;
+	};
+	
+	instanceProto.doChangeAnimFrame = function ()
+	{
+		var prev_frame = this.cur_animation.frames[this.cur_frame];
+		var prev_frame_number = this.cur_frame;
+		
+		this.cur_frame = cr.floor(this.changeAnimFrame);
+		
+		if (this.cur_frame < 0)
+			this.cur_frame = 0;
+		if (this.cur_frame >= this.cur_animation.frames.length)
+			this.cur_frame = this.cur_animation.frames.length - 1;
+			
+		if (prev_frame_number !== this.cur_frame)
+		{
+			this.OnFrameChanged(prev_frame, this.cur_animation.frames[this.cur_frame]);
+			this.frameStart = this.getNowTime();
+			this.runtime.redraw = true;
+		}
+		
+		this.changeAnimFrame = -1;
+	};
+	
+	instanceProto.OnFrameChanged = function (prev_frame, next_frame)
+	{
+		// Has the frame size changed?  Resize the object proportionally
+		var oldw = prev_frame.width;
+		var oldh = prev_frame.height;
+		var neww = next_frame.width;
+		var newh = next_frame.height;
+		
+		if (oldw != neww)
+			this.width *= (neww / oldw);
+		if (oldh != newh)
+			this.height *= (newh / oldh);
+			
+		// Update hotspot, collision poly and bounding box
+		this.hotspotX = next_frame.hotspotX;
+		this.hotspotY = next_frame.hotspotY;
+		this.collision_poly.set_pts(next_frame.poly_pts);
+		this.set_bbox_changed();
+		
+		// Update webGL texture if any
+		this.curFrame = next_frame;
+		this.curWebGLTexture = next_frame.webGL_texture;
+		
+		// Notify behaviors
+		var i, len, b;
+		for (i = 0, len = this.behavior_insts.length; i < len; i++)
+		{
+			b = this.behavior_insts[i];
+			
+			if (b.onSpriteFrameChanged)
+				b.onSpriteFrameChanged(prev_frame, next_frame);
+		}
+		
+		// Trigger 'on frame changed'
+		this.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnFrameChanged, this);
+	};
+
+	instanceProto.draw = function(ctx)
+	{
+		ctx.globalAlpha = this.opacity;
+			
+		// The current animation frame to draw
+		var cur_frame = this.curFrame;
+		var spritesheeted = cur_frame.spritesheeted;
+		var cur_image = cur_frame.texture_img;
+		
+		var myx = this.x;
+		var myy = this.y;
+		var w = this.width;
+		var h = this.height;
+		
+		// Object not rotated: can draw without transformation.
+		if (this.angle === 0 && w >= 0 && h >= 0)
+		{
+			myx -= this.hotspotX * w;
+			myy -= this.hotspotY * h;
+			
+			if (this.runtime.pixel_rounding)
+			{
+				myx = Math.round(myx);
+				myy = Math.round(myy);
+			}
+			
+			if (spritesheeted)
+			{
+				ctx.drawImage(cur_image, cur_frame.offx, cur_frame.offy, cur_frame.width, cur_frame.height,
+										 myx, myy, w, h);
+			}
+			else
+			{
+				ctx.drawImage(cur_image, myx, myy, w, h);
+			}
+		}
+		else
+		{
+			// Only pixel round the x/y position, otherwise objects don't rotate smoothly
+			if (this.runtime.pixel_rounding)
+			{
+				myx = Math.round(myx);
+				myy = Math.round(myy);
+			}
+			
+			// Angle applied; we need to transform the canvas.  Save state.
+			ctx.save();
+			
+			var widthfactor = w > 0 ? 1 : -1;
+			var heightfactor = h > 0 ? 1 : -1;
+			
+			// Translate to object's position, then rotate by its angle.
+			ctx.translate(myx, myy);
+			
+			if (widthfactor !== 1 || heightfactor !== 1)
+				ctx.scale(widthfactor, heightfactor);
+			
+			ctx.rotate(this.angle * widthfactor * heightfactor);
+			
+			var drawx = 0 - (this.hotspotX * cr.abs(w))
+			var drawy = 0 - (this.hotspotY * cr.abs(h));
+			
+			// Draw the object; canvas origin is at hot spot.
+			if (spritesheeted)
+			{
+				ctx.drawImage(cur_image, cur_frame.offx, cur_frame.offy, cur_frame.width, cur_frame.height,
+										 drawx, drawy, cr.abs(w), cr.abs(h));
+			}
+			else
+			{
+				ctx.drawImage(cur_image, drawx, drawy, cr.abs(w), cr.abs(h));
+			}
+			
+			// Restore previous state.
+			ctx.restore();
+		}
+			
+		//////////////////////////////////////////
+		// Draw collision poly (for debug)
+		/*
+		ctx.strokeStyle = "#f00";
+		ctx.lineWidth = 3;
+		ctx.beginPath();
+		this.collision_poly.cache_poly(this.width, this.height, this.angle);
+		var i, len, ax, ay, bx, by;
+		for (i = 0, len = this.collision_poly.pts_count; i < len; i++)
+		{
+			ax = this.collision_poly.pts_cache[i*2] + this.x;
+			ay = this.collision_poly.pts_cache[i*2+1] + this.y;
+			bx = this.collision_poly.pts_cache[((i+1)%len)*2] + this.x;
+			by = this.collision_poly.pts_cache[((i+1)%len)*2+1] + this.y;
+			
+			ctx.moveTo(ax, ay);
+			ctx.lineTo(bx, by);
+		}
+		
+		ctx.stroke();
+		ctx.closePath();
+		*/
+		// Draw physics polys (for debug)
+		/*
+		if (this.behavior_insts.length >= 1 && this.behavior_insts[0].draw)
+		{
+			this.behavior_insts[0].draw(ctx);
+		}
+		*/
+		//////////////////////////////////////////
+	};
+	
+	instanceProto.drawGL_earlyZPass = function(glw)
+	{
+		this.drawGL(glw);
+	};
+	
+	instanceProto.drawGL = function(glw)
+	{
+		glw.setTexture(this.curWebGLTexture);
+		glw.setOpacity(this.opacity);
+		var cur_frame = this.curFrame;
+		
+		var q = this.bquad;
+		
+		if (this.runtime.pixel_rounding)
+		{
+			var ox = Math.round(this.x) - this.x;
+			var oy = Math.round(this.y) - this.y;
+			
+			if (cur_frame.spritesheeted)
+				glw.quadTex(q.tlx + ox, q.tly + oy, q.trx + ox, q.try_ + oy, q.brx + ox, q.bry + oy, q.blx + ox, q.bly + oy, cur_frame.sheetTex);
+			else
+				glw.quad(q.tlx + ox, q.tly + oy, q.trx + ox, q.try_ + oy, q.brx + ox, q.bry + oy, q.blx + ox, q.bly + oy);
+		}
+		else
+		{
+			if (cur_frame.spritesheeted)
+				glw.quadTex(q.tlx, q.tly, q.trx, q.try_, q.brx, q.bry, q.blx, q.bly, cur_frame.sheetTex);
+			else
+				glw.quad(q.tlx, q.tly, q.trx, q.try_, q.brx, q.bry, q.blx, q.bly);
+		}
+	};
+	
+	instanceProto.getImagePointIndexByName = function(name_)
+	{
+		var cur_frame = this.curFrame;
+		
+		var i, len;
+		for (i = 0, len = cur_frame.image_points.length; i < len; i++)
+		{
+			if (cr.equals_nocase(name_, cur_frame.image_points[i][0]))
+				return i;
+		}
+		
+		return -1;
+	};
+	
+	instanceProto.getImagePoint = function(imgpt, getX)
+	{
+		var cur_frame = this.curFrame;
+		var image_points = cur_frame.image_points;
+		var index;
+		
+		if (cr.is_string(imgpt))
+			index = this.getImagePointIndexByName(imgpt);
+		else
+			index = imgpt - 1;	// 0 is origin
+			
+		index = cr.floor(index);
+		if (index < 0 || index >= image_points.length)
+			return getX ? this.x : this.y;	// return origin
+			
+		// get position scaled and relative to origin in pixels
+		var x = (image_points[index][1] - cur_frame.hotspotX) * this.width;
+		var y = image_points[index][2];
+		
+		y = (y - cur_frame.hotspotY) * this.height;
+		
+		// rotate by object angle
+		var cosa = Math.cos(this.angle);
+		var sina = Math.sin(this.angle);
+		var x_temp = (x * cosa) - (y * sina);
+		y = (y * cosa) + (x * sina);
+		x = x_temp;
+		x += this.x;
+		y += this.y;
+		return getX ? x : y;
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+
+	// For the collision memory in 'On collision'.
+	var arrCache = [];
+	
+	function allocArr()
+	{
+		if (arrCache.length)
+			return arrCache.pop();
+		else
+			return [0, 0, 0];
+	};
+	
+	function freeArr(a)
+	{
+		a[0] = 0;
+		a[1] = 0;
+		a[2] = 0;
+		arrCache.push(a);
+	};
+	
+	function makeCollKey(a, b)
+	{
+		// comma separated string with lowest value first
+		if (a < b)
+			return "" + a + "," + b;
+		else
+			return "" + b + "," + a;
+	};
+	
+	function collmemory_add(collmemory, a, b, tickcount)
+	{
+		var a_uid = a.uid;
+		var b_uid = b.uid;
+
+		var key = makeCollKey(a_uid, b_uid);
+		
+		if (collmemory.hasOwnProperty(key))
+		{
+			// added already; just update tickcount
+			collmemory[key][2] = tickcount;
+			return;
+		}
+		
+		var arr = allocArr();
+		arr[0] = a_uid;
+		arr[1] = b_uid;
+		arr[2] = tickcount;
+		collmemory[key] = arr;
+	};
+	
+	function collmemory_remove(collmemory, a, b)
+	{
+		var key = makeCollKey(a.uid, b.uid);
+		
+		if (collmemory.hasOwnProperty(key))
+		{
+			freeArr(collmemory[key]);
+			delete collmemory[key];
+		}
+	};
+	
+	function collmemory_removeInstance(collmemory, inst)
+	{
+		var uid = inst.uid;
+		var p, entry;
+		for (p in collmemory)
+		{
+			if (collmemory.hasOwnProperty(p))
+			{
+				entry = collmemory[p];
+				
+				// Referenced in either UID: must be removed
+				if (entry[0] === uid || entry[1] === uid)
+				{
+					freeArr(collmemory[p]);
+					delete collmemory[p];
+				}
+			}
+		}
+	};
+	
+	var last_coll_tickcount = -2;
+	
+	function collmemory_has(collmemory, a, b)
+	{
+		var key = makeCollKey(a.uid, b.uid);
+		
+		if (collmemory.hasOwnProperty(key))
+		{
+			last_coll_tickcount = collmemory[key][2];
+			return true;
+		}
+		else
+		{
+			last_coll_tickcount = -2;
+			return false;
+		}
+	};
+	
+	var candidates1 = [];
+	
+	Cnds.prototype.OnCollision = function (rtype)
+	{	
+		if (!rtype)
+			return false;
+			
+		var runtime = this.runtime;
+			
+		// Static condition: perform picking manually.
+		// Get the current condition.  This is like the 'is overlapping' condition
+		// but with a built in 'trigger once' for the l instances.
+		var cnd = runtime.getCurrentCondition();
+		var ltype = cnd.type;
+		var collmemory = null;
+		
+		// Create the collision memory, which remembers pairs of collisions that
+		// are already overlapping
+		if (cnd.extra["collmemory"])
+		{
+			collmemory = cnd.extra["collmemory"];
+		}
+		else
+		{
+			collmemory = {};
+			cnd.extra["collmemory"] = collmemory;
+		}
+		
+		// Once per condition, add a destroy callback to remove destroyed instances from collision memory
+		// which helps avoid a memory leak. Note the spriteCreatedDestroyCallback property is not saved
+		// to savegames, so loading a savegame will still cause a callback to be created, as intended.
+		if (!cnd.extra["spriteCreatedDestroyCallback"])
+		{
+			cnd.extra["spriteCreatedDestroyCallback"] = true;
+			
+			runtime.addDestroyCallback(function(inst) {
+				collmemory_removeInstance(cnd.extra["collmemory"], inst);
+			});
+		}
+		
+		// Get the currently active SOLs for both objects involved in the overlap test
+		var lsol = ltype.getCurrentSol();
+		var rsol = rtype.getCurrentSol();
+		var linstances = lsol.getObjects();
+		var rinstances;
+		var registeredInstances;
+		
+		// Iterate each combination of instances
+		var l, linst, r, rinst;
+		var curlsol, currsol;
+		
+		var tickcount = this.runtime.tickcount;
+		var lasttickcount = tickcount - 1;
+		var exists, run;
+		
+		var current_event = runtime.getCurrentEventStack().current_event;
+		var orblock = current_event.orblock;
+		
+		// Note: don't cache lengths of linstances or rinstances. They can change if objects get destroyed in the event
+		// retriggering.
+		for (l = 0; l < linstances.length; l++)
+		{
+			linst = linstances[l];
+			
+			if (rsol.select_all)
+			{
+				linst.update_bbox();
+				this.runtime.getCollisionCandidates(linst.layer, rtype, linst.bbox, candidates1);
+				rinstances = candidates1;
+				
+				// NOTE: some behaviors like Platform can register a collision, then push the instance back in to a different
+				// collision cell. This will cause the instance that registered a collision to not be in the collision
+				// candidates, and therefore fail to detect a collision. To avoid this, specifically search for a list of all
+				// instances that have registered a collision with linst, and ensure they are in the candidates.
+				this.runtime.addRegisteredCollisionCandidates(linst, rtype, rinstances);
+			}
+			else
+			{
+				rinstances = rsol.getObjects();
+			}
+			
+			for (r = 0; r < rinstances.length; r++)
+			{
+				rinst = rinstances[r];
+				
+				if (runtime.testOverlap(linst, rinst) || runtime.checkRegisteredCollision(linst, rinst))
+				{
+					exists = collmemory_has(collmemory, linst, rinst);
+					run = (!exists || (last_coll_tickcount < lasttickcount));
+					
+					// objects are still touching so update the tickcount
+					collmemory_add(collmemory, linst, rinst, tickcount);
+					
+					if (run)
+					{						
+						runtime.pushCopySol(current_event.solModifiers);
+						curlsol = ltype.getCurrentSol();
+						currsol = rtype.getCurrentSol();
+						curlsol.select_all = false;
+						currsol.select_all = false;
+						
+						// If ltype === rtype, it's the same object (e.g. Sprite collides with Sprite)
+						// In which case, pick both instances
+						if (ltype === rtype)
+						{
+							curlsol.instances.length = 2;	// just use lsol, is same reference as rsol
+							curlsol.instances[0] = linst;
+							curlsol.instances[1] = rinst;
+							ltype.applySolToContainer();
+						}
+						else
+						{
+							// Pick each instance in its respective SOL
+							curlsol.instances.length = 1;
+							currsol.instances.length = 1;
+							curlsol.instances[0] = linst;
+							currsol.instances[0] = rinst;
+							ltype.applySolToContainer();
+							rtype.applySolToContainer();
+						}
+						
+						current_event.retrigger();
+						runtime.popSol(current_event.solModifiers);
+					}
+				}
+				else
+				{
+					// Pair not overlapping: ensure any record removed (mainly to save memory)
+					collmemory_remove(collmemory, linst, rinst);
+				}
+			}
+			
+			cr.clearArray(candidates1);
+		}
+		
+		// We've aleady run the event by now.
+		return false;
+	};
+	
+	var rpicktype = null;
+	var rtopick = new cr.ObjectSet();
+	var needscollisionfinish = false;
+	
+	var candidates2 = [];
+	var temp_bbox = new cr.rect(0, 0, 0, 0);
+	
+	function DoOverlapCondition(rtype, offx, offy)
+	{
+		if (!rtype)
+			return false;
+			
+		var do_offset = (offx !== 0 || offy !== 0);
+		var oldx, oldy, ret = false, r, lenr, rinst;
+		var cnd = this.runtime.getCurrentCondition();
+		var ltype = cnd.type;
+		var inverted = cnd.inverted;
+		var rsol = rtype.getCurrentSol();
+		var orblock = this.runtime.getCurrentEventStack().current_event.orblock;
+		var rinstances;
+		
+		if (rsol.select_all)
+		{
+			this.update_bbox();
+			
+			// Make sure queried box is offset the same as the collision offset so we look in
+			// the right cells
+			temp_bbox.copy(this.bbox);
+			temp_bbox.offset(offx, offy);
+			this.runtime.getCollisionCandidates(this.layer, rtype, temp_bbox, candidates2);
+			rinstances = candidates2;
+		}
+		else if (orblock)
+		{
+			// Normally the instances to process are in the else_instances array. However if a parent normal block
+			// already picked from rtype, it will have select_all off, no else_instances, and just some content
+			// in 'instances'. Look for this case in the first condition only.
+			if (this.runtime.isCurrentConditionFirst() && !rsol.else_instances.length && rsol.instances.length)
+				rinstances = rsol.instances;
+			else
+				rinstances = rsol.else_instances;
+		}
+		else
+		{
+			rinstances = rsol.instances;
+		}
+		
+		rpicktype = rtype;
+		needscollisionfinish = (ltype !== rtype && !inverted);
+		
+		if (do_offset)
+		{
+			oldx = this.x;
+			oldy = this.y;
+			this.x += offx;
+			this.y += offy;
+			this.set_bbox_changed();
+		}
+		
+		for (r = 0, lenr = rinstances.length; r < lenr; r++)
+		{
+			rinst = rinstances[r];
+			
+			// objects overlap: true for this instance, ensure both are picked
+			// (if ltype and rtype are same, e.g. "Sprite overlaps Sprite", don't pick the other instance,
+			// it will be picked when it gets iterated to itself)
+			if (this.runtime.testOverlap(this, rinst))
+			{
+				ret = true;
+				
+				// Inverted condition: just bail out now, don't pick right hand instance -
+				// also note we still return true since the condition invert flag makes that false
+				if (inverted)
+					break;
+					
+				if (ltype !== rtype)
+					rtopick.add(rinst);
+			}
+		}
+		
+		if (do_offset)
+		{
+			this.x = oldx;
+			this.y = oldy;
+			this.set_bbox_changed();
+		}
+		
+		cr.clearArray(candidates2);
+		return ret;
+	};
+	
+	typeProto.finish = function (do_pick)
+	{
+		if (!needscollisionfinish)
+			return;
+		
+		if (do_pick)
+		{
+			var orblock = this.runtime.getCurrentEventStack().current_event.orblock;
+			var sol = rpicktype.getCurrentSol();
+			var topick = rtopick.valuesRef();
+			var i, len, inst;
+			
+			if (sol.select_all)
+			{
+				// All selected: filter down to just those in topick
+				sol.select_all = false;
+				cr.clearArray(sol.instances);
+			
+				for (i = 0, len = topick.length; i < len; ++i)
+				{
+					sol.instances[i] = topick[i];
+				}
+				
+				// In OR blocks, else_instances must also be filled with objects not in topick
+				if (orblock)
+				{
+					cr.clearArray(sol.else_instances);
+					
+					for (i = 0, len = rpicktype.instances.length; i < len; ++i)
+					{
+						inst = rpicktype.instances[i];
+						
+						if (!rtopick.contains(inst))
+							sol.else_instances.push(inst);
+					}
+				}
+			}
+			else
+			{
+				if (orblock)
+				{
+					var initsize = sol.instances.length;
+				
+					for (i = 0, len = topick.length; i < len; ++i)
+					{
+						sol.instances[initsize + i] = topick[i];
+						cr.arrayFindRemove(sol.else_instances, topick[i]);
+					}
+				}
+				else
+				{
+					cr.shallowAssignArray(sol.instances, topick);
+				}
+			}
+			
+			rpicktype.applySolToContainer();
+		}
+		
+		rtopick.clear();
+		needscollisionfinish = false;
+	};
+	
+	Cnds.prototype.IsOverlapping = function (rtype)
+	{
+		return DoOverlapCondition.call(this, rtype, 0, 0);
+	};
+	
+	Cnds.prototype.IsOverlappingOffset = function (rtype, offx, offy)
+	{
+		return DoOverlapCondition.call(this, rtype, offx, offy);
+	};
+	
+	Cnds.prototype.IsAnimPlaying = function (animname)
+	{
+		// If awaiting a change of animation to really happen next tick, compare to that now
+		if (this.changeAnimName.length)
+			return cr.equals_nocase(this.changeAnimName, animname);
+		else
+			return cr.equals_nocase(this.cur_animation.name, animname);
+	};
+	
+	Cnds.prototype.CompareFrame = function (cmp, framenum)
+	{
+		return cr.do_cmp(this.cur_frame, cmp, framenum);
+	};
+	
+	Cnds.prototype.CompareAnimSpeed = function (cmp, x)
+	{
+		var s = (this.animForwards ? this.cur_anim_speed : -this.cur_anim_speed);
+		return cr.do_cmp(s, cmp, x);
+	};
+	
+	Cnds.prototype.OnAnimFinished = function (animname)
+	{
+		return cr.equals_nocase(this.animTriggerName, animname);
+	};
+	
+	Cnds.prototype.OnAnyAnimFinished = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.OnFrameChanged = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.IsMirrored = function ()
+	{
+		return this.width < 0;
+	};
+	
+	Cnds.prototype.IsFlipped = function ()
+	{
+		return this.height < 0;
+	};
+	
+	Cnds.prototype.OnURLLoaded = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.IsCollisionEnabled = function ()
+	{
+		return this.collisionsEnabled;
+	};
+	
+	pluginProto.cnds = new Cnds();
+
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.Spawn = function (obj, layer, imgpt)
+	{
+		if (!obj || !layer)
+			return;
+			
+		var inst = this.runtime.createInstance(obj, layer, this.getImagePoint(imgpt, true), this.getImagePoint(imgpt, false));
+		
+		if (!inst)
+			return;
+		
+		if (typeof inst.angle !== "undefined")
+		{
+			inst.angle = this.angle;
+			inst.set_bbox_changed();
+		}
+		
+		this.runtime.isInOnDestroy++;
+		
+		var i, len, s;
+		this.runtime.trigger(Object.getPrototypeOf(obj.plugin).cnds.OnCreated, inst);
+		
+		if (inst.is_contained)
+		{
+			for (i = 0, len = inst.siblings.length; i < len; i++)
+			{
+				s = inst.siblings[i];
+				this.runtime.trigger(Object.getPrototypeOf(s.type.plugin).cnds.OnCreated, s);
+			}
+		}
+		
+		this.runtime.isInOnDestroy--;
+		
+		// This action repeats for all picked instances.  We want to set the current
+		// selection to all instances that are created by this action.  Therefore,
+		// reset the SOL only for the first instance.  Determine this by the last tick count run.
+		// HOWEVER loops and the 'on collision' event re-triggers events, re-running the action
+		// with the same tickcount.  To get around this, triggers and re-triggering events increment
+		// the 'execcount', so each execution of the action has a different execcount even if not
+		// the same tickcount.
+		var cur_act = this.runtime.getCurrentAction();
+		var reset_sol = false;
+		
+		if (cr.is_undefined(cur_act.extra["Spawn_LastExec"]) || cur_act.extra["Spawn_LastExec"] < this.runtime.execcount)
+		{
+			reset_sol = true;
+			cur_act.extra["Spawn_LastExec"] = this.runtime.execcount;
+		}
+		
+		var sol;
+		
+		// Pick just this instance, as long as it's a different type (else the SOL instances array is
+		// potentially modified while in use)
+		if (obj != this.type)
+		{
+			sol = obj.getCurrentSol();
+			sol.select_all = false;
+			
+			if (reset_sol)
+			{
+				cr.clearArray(sol.instances);
+				sol.instances[0] = inst;
+			}
+			else
+				sol.instances.push(inst);
+				
+			// Siblings aren't in instance lists yet, pick them manually
+			if (inst.is_contained)
+			{
+				for (i = 0, len = inst.siblings.length; i < len; i++)
+				{
+					s = inst.siblings[i];
+					sol = s.type.getCurrentSol();
+					sol.select_all = false;
+					
+					if (reset_sol)
+					{
+						cr.clearArray(sol.instances);
+						sol.instances[0] = s;
+					}
+					else
+						sol.instances.push(s);
+				}
+			}
+		}
+	};
+	
+	Acts.prototype.SetEffect = function (effect)
+	{
+		this.blend_mode = effect;
+		this.compositeOp = cr.effectToCompositeOp(effect);
+		cr.setGLBlend(this, effect, this.runtime.gl);
+		this.runtime.redraw = true;
+	};
+	
+	Acts.prototype.StopAnim = function ()
+	{
+		this.animPlaying = false;
+		//log("Stopping animation");
+	};
+	
+	Acts.prototype.StartAnim = function (from)
+	{
+		this.animPlaying = true;
+		this.frameStart = this.getNowTime();
+		//log("Starting animation");
+		
+		// from beginning
+		if (from === 1 && this.cur_frame !== 0)
+		{
+			this.changeAnimFrame = 0;
+			
+			if (!this.inAnimTrigger)
+				this.doChangeAnimFrame();
+		}
+		
+		// start ticking if not already
+		if (!this.isTicking)
+		{
+			this.runtime.tickMe(this);
+			this.isTicking = true;
+		}
+	};
+	
+	Acts.prototype.SetAnim = function (animname, from)
+	{
+		this.changeAnimName = animname;
+		this.changeAnimFrom = from;
+		
+		// start ticking if not already
+		if (!this.isTicking)
+		{
+			this.runtime.tickMe(this);
+			this.isTicking = true;
+		}
+		
+		// not in trigger: apply immediately
+		if (!this.inAnimTrigger)
+			this.doChangeAnim();
+	};
+	
+	Acts.prototype.SetAnimFrame = function (framenumber)
+	{
+		this.changeAnimFrame = framenumber;
+		
+		// start ticking if not already
+		if (!this.isTicking)
+		{
+			this.runtime.tickMe(this);
+			this.isTicking = true;
+		}
+		
+		// not in trigger: apply immediately
+		if (!this.inAnimTrigger)
+			this.doChangeAnimFrame();
+	};
+	
+	Acts.prototype.SetAnimSpeed = function (s)
+	{
+		this.cur_anim_speed = cr.abs(s);
+		this.animForwards = (s >= 0);
+		
+		//this.frameStart = this.runtime.kahanTime.sum;
+		
+		// start ticking if not already
+		if (!this.isTicking)
+		{
+			this.runtime.tickMe(this);
+			this.isTicking = true;
+		}
+	};
+	
+	Acts.prototype.SetAnimRepeatToFrame = function (s)
+	{
+		s = Math.floor(s);
+		
+		if (s < 0)
+			s = 0;
+		if (s >= this.cur_animation.frames.length)
+			s = this.cur_animation.frames.length - 1;
+		
+		this.cur_anim_repeatto = s;
+	};
+	
+	Acts.prototype.SetMirrored = function (m)
+	{
+		var neww = cr.abs(this.width) * (m === 0 ? -1 : 1);
+		
+		if (this.width === neww)
+			return;
+			
+		this.width = neww;
+		this.set_bbox_changed();
+	};
+	
+	Acts.prototype.SetFlipped = function (f)
+	{
+		var newh = cr.abs(this.height) * (f === 0 ? -1 : 1);
+		
+		if (this.height === newh)
+			return;
+			
+		this.height = newh;
+		this.set_bbox_changed();
+	};
+	
+	Acts.prototype.SetScale = function (s)
+	{
+		var cur_frame = this.curFrame;
+		var mirror_factor = (this.width < 0 ? -1 : 1);
+		var flip_factor = (this.height < 0 ? -1 : 1);
+		var new_width = cur_frame.width * s * mirror_factor;
+		var new_height = cur_frame.height * s * flip_factor;
+		
+		if (this.width !== new_width || this.height !== new_height)
+		{
+			this.width = new_width;
+			this.height = new_height;
+			this.set_bbox_changed();
+		}
+	};
+	
+	Acts.prototype.LoadURL = function (url_, resize_, crossOrigin_)
+	{
+		var img = new Image();
+		var self = this;
+		var curFrame_ = this.curFrame;
+		
+		img.onload = function ()
+		{
+			// If this action was used on multiple instances, they will each try to create a
+			// separate image or texture, which is a waste of memory. So if the same image has
+			// already been loaded, ignore this callback.
+			if (curFrame_.texture_img.src === img.src)
+			{
+				// Still may need to switch to using the image's texture in WebGL renderer
+				if (self.runtime.glwrap && self.curFrame === curFrame_)
+					self.curWebGLTexture = curFrame_.webGL_texture;
+				
+				// Still may need to update object size
+				if (resize_ === 0)		// resize to image size
+				{
+					self.width = img.width;
+					self.height = img.height;
+					self.set_bbox_changed();
+				}
+				
+				// Still need to trigger 'On loaded'
+				self.runtime.redraw = true;
+				self.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnURLLoaded, self);
+			
+				return;
+			}
+			
+			curFrame_.texture_img = img;
+			curFrame_.offx = 0;
+			curFrame_.offy = 0;
+			curFrame_.width = img.width;
+			curFrame_.height = img.height;
+			curFrame_.spritesheeted = false;
+			curFrame_.datauri = "";
+			curFrame_.pixelformat = 0;	// reset to RGBA, since we don't know what type of image will have come in
+										// and it could be different to what the exporter set for the original image
+			
+			// WebGL renderer: need to create texture (canvas2D just draws with img directly)
+			if (self.runtime.glwrap)
+			{
+				if (curFrame_.webGL_texture)
+					self.runtime.glwrap.deleteTexture(curFrame_.webGL_texture);
+					
+				curFrame_.webGL_texture = self.runtime.glwrap.loadTexture(img, false, self.runtime.linearSampling);
+				
+				if (self.curFrame === curFrame_)
+					self.curWebGLTexture = curFrame_.webGL_texture;
+				
+				// Need to update other instance's curWebGLTexture
+				self.type.updateAllCurrentTexture();
+			}
+			
+			// Set size if necessary
+			if (resize_ === 0)		// resize to image size
+			{
+				self.width = img.width;
+				self.height = img.height;
+				self.set_bbox_changed();
+			}
+			
+			self.runtime.redraw = true;
+			self.runtime.trigger(cr.plugins_.Sprite.prototype.cnds.OnURLLoaded, self);
+		};
+		
+		if (url_.substr(0, 5) !== "data:" && crossOrigin_ === 0)
+			img["crossOrigin"] = "anonymous";
+		
+		// use runtime function to work around WKWebView permissions
+		this.runtime.setImageSrc(img, url_);
+	};
+	
+	Acts.prototype.SetCollisions = function (set_)
+	{
+		if (this.collisionsEnabled === (set_ !== 0))
+			return;		// no change
+		
+		this.collisionsEnabled = (set_ !== 0);
+		
+		if (this.collisionsEnabled)
+			this.set_bbox_changed();		// needs to be added back to cells
+		else
+		{
+			// remove from any current cells and restore to uninitialised state
+			if (this.collcells.right >= this.collcells.left)
+				this.type.collision_grid.update(this, this.collcells, null);
+			
+			this.collcells.set(0, 0, -1, -1);
+		}
+	};
+	
+	pluginProto.acts = new Acts();
+	
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+	
+	Exps.prototype.AnimationFrame = function (ret)
+	{
+		ret.set_int(this.cur_frame);
+	};
+	
+	Exps.prototype.AnimationFrameCount = function (ret)
+	{
+		ret.set_int(this.cur_animation.frames.length);
+	};
+	
+	Exps.prototype.AnimationName = function (ret)
+	{
+		ret.set_string(this.cur_animation.name);
+	};
+	
+	Exps.prototype.AnimationSpeed = function (ret)
+	{
+		ret.set_float(this.animForwards ? this.cur_anim_speed : -this.cur_anim_speed);
+	};
+	
+	Exps.prototype.ImagePointX = function (ret, imgpt)
+	{
+		ret.set_float(this.getImagePoint(imgpt, true));
+	};
+	
+	Exps.prototype.ImagePointY = function (ret, imgpt)
+	{
+		ret.set_float(this.getImagePoint(imgpt, false));
+	};
+	
+	Exps.prototype.ImagePointCount = function (ret)
+	{
+		ret.set_int(this.curFrame.image_points.length);
+	};
+	
+	Exps.prototype.ImageWidth = function (ret)
+	{
+		ret.set_float(this.curFrame.width);
+	};
+	
+	Exps.prototype.ImageHeight = function (ret)
+	{
+		ret.set_float(this.curFrame.height);
+	};
+	
+	pluginProto.exps = new Exps();
+
+}());
+
+// Slider bar
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Plugin class
+cr.plugins_.sliderbar = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	/////////////////////////////////////
+	var pluginProto = cr.plugins_.sliderbar.prototype;
+		
+	/////////////////////////////////////
+	// Object type class
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+
+	var typeProto = pluginProto.Type.prototype;
+
+	// called on startup for each object type
+	typeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Instance class
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	
+	var instanceProto = pluginProto.Instance.prototype;
+
+	// called whenever an instance is created
+	instanceProto.onCreate = function()
+	{
+		this.elem = document.createElement("input");
+		this.elem.type = "range";
+		
+		this.elem["max"] = this.properties[2];
+		this.elem["min"] = this.properties[1];
+		this.elem["step"] = this.properties[3];
+		this.elem["value"] = this.properties[0];
+		
+		this.elem.disabled = !this.properties[6];
+		this.elem.id = this.properties[7];
+		this.elem.title = this.properties[4];
+		document.body.appendChild(this.elem);
+		
+		this.element_hidden = false;
+		
+		if (!this.properties[5])			// initially invisible
+		{
+			this.elem.style.display = "none";
+			this.visible = false;
+			this.element_hidden = true;
+		}
+		
+		this.elem.onclick = (function (self) {
+			return function(e) {
+				e.stopPropagation();
+				
+				self.runtime.isInUserInputEvent = true;
+				self.runtime.trigger(cr.plugins_.sliderbar.prototype.cnds.OnClicked, self);
+				self.runtime.isInUserInputEvent = false;
+			};
+		})(this);
+		
+		this.elem.onchange = (function (self) {
+			return function(e) {
+				self.runtime.isInUserInputEvent = true;
+				self.runtime.trigger(cr.plugins_.sliderbar.prototype.cnds.OnChanged, self);
+				self.runtime.isInUserInputEvent = false;
+			};
+		})(this);
+		
+		// Prevent touches reaching the canvas
+		this.elem.addEventListener("touchstart", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		this.elem.addEventListener("touchmove", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		this.elem.addEventListener("touchend", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		// Prevent clicks being blocked
+		this.elem.addEventListener("mousedown", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.elem.addEventListener("mouseup", function (e) {
+			e.stopPropagation();
+		});
+		
+		// Prevent key presses being blocked by the Keyboard object
+		this.elem.addEventListener("keydown", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.elem.addEventListener("keyup", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.lastLeft = 0;
+		this.lastTop = 0;
+		this.lastRight = 0;
+		this.lastBottom = 0;
+		this.lastWinWidth = 0;
+		this.lastWinHeight = 0;
+			
+		this.updatePosition(true);
+		
+		this.runtime.tickMe(this);
+	};
+	
+	instanceProto.saveToJSON = function ()
+	{
+		var o = {
+			"v": this.elem["value"],
+			"mi": this.elem["min"],
+			"ma": this.elem["max"],
+			"s": this.elem["step"]
+		};
+		
+		return o;
+	};
+	
+	instanceProto.loadFromJSON = function (o)
+	{
+		this.elem["min"] = o["mi"];
+		this.elem["max"] = o["ma"];
+		this.elem["step"] = o["s"];
+		this.elem["value"] = o["v"];
+	};
+	
+	instanceProto.onDestroy = function ()
+	{
+		this.elem.parentElement.removeChild(this.elem);
+		this.elem = null;
+	};
+	
+	instanceProto.tick = function ()
+	{
+		this.updatePosition();
+	};
+	
+	var last_canvas_offset = null;
+	var last_checked_tick = -1;
+	
+	instanceProto.updatePosition = function (first)
+	{
+		var left = this.layer.layerToCanvas(this.x, this.y, true);
+		var top = this.layer.layerToCanvas(this.x, this.y, false);
+		var right = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, true);
+		var bottom = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, false);
+		
+		var rightEdge = this.runtime.width / this.runtime.devicePixelRatio;
+		var bottomEdge = this.runtime.height / this.runtime.devicePixelRatio;
+		
+		// Is entirely offscreen or invisible: hide
+		if (!this.visible || !this.layer.visible || right <= 0 || bottom <= 0 || left >= rightEdge || top >= bottomEdge)
+		{
+			if (!this.element_hidden)
+				this.elem.style.display = "none";
+			
+			this.element_hidden = true;
+			return;
+		}
+		
+		// Truncate to canvas size
+		if (left < 1)
+			left = 1;
+		if (top < 1)
+			top = 1;
+		if (right >= rightEdge)
+			right = rightEdge - 1;
+		if (bottom >= bottomEdge)
+			bottom = bottomEdge - 1;
+		
+		var curWinWidth = window.innerWidth;
+		var curWinHeight = window.innerHeight;
+			
+		// Avoid redundant updates
+		if (!first && this.lastLeft === left && this.lastTop === top && this.lastRight === right && this.lastBottom === bottom && this.lastWinWidth === curWinWidth && this.lastWinHeight === curWinHeight)
+		{
+			if (this.element_hidden)
+			{
+				this.elem.style.display = "";
+				this.element_hidden = false;
+			}
+			
+			return;
+		}
+			
+		this.lastLeft = left;
+		this.lastTop = top;
+		this.lastRight = right;
+		this.lastBottom = bottom;
+		this.lastWinWidth = curWinWidth;
+		this.lastWinHeight = curWinHeight;
+		
+		if (this.element_hidden)
+		{
+			this.elem.style.display = "";
+			this.element_hidden = false;
+		}
+		
+		var offx = Math.round(left) + this.runtime.canvas.offsetLeft;
+		var offy = Math.round(top) + this.runtime.canvas.offsetTop;
+		this.elem.style.position = "absolute";
+		this.elem.style.left = offx + "px";
+		this.elem.style.top = offy + "px";
+		this.elem.style.width = Math.round(right - left) + "px";
+		this.elem.style.height = Math.round(bottom - top) + "px";
+	};
+	
+	// only called if a layout object
+	instanceProto.draw = function(ctx)
+	{
+	};
+	
+	instanceProto.drawGL = function(glw)
+	{
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+	
+	Cnds.prototype.OnClicked = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.OnChanged = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.CompareValue = function (cmp, x)
+	{
+		return cr.do_cmp(parseFloat(this.elem["value"]), cmp, x);
+	};
+	
+	pluginProto.cnds = new Cnds();
+	
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.SetTooltip = function (text)
+	{
+		this.elem.title = text;
+	};
+	
+	Acts.prototype.SetVisible = function (vis)
+	{
+		this.visible = (vis !== 0);
+	};
+	
+	Acts.prototype.SetCSSStyle = function (p, v)
+	{
+		this.elem.style[cr.cssToCamelCase(p)] = v;
+	};
+	
+	Acts.prototype.SetValue = function (x)
+	{
+		this.elem["value"] = x;
+	};
+	
+	Acts.prototype.SetMaximum = function (x)
+	{
+		this.elem["max"] = x;
+	};
+	
+	Acts.prototype.SetMinimum = function (x)
+	{
+		this.elem["min"] = x;
+	};
+	
+	Acts.prototype.SetStep = function (x)
+	{
+		this.elem["step"] = x;
+	};
+	
+	Acts.prototype.SetEnabled = function (en)
+	{
+		this.elem.disabled = (en === 0);
+	};
+	
+	pluginProto.acts = new Acts();
+	
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+	
+	Exps.prototype.Value = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["value"]) || 0);
+	};
+	
+	Exps.prototype.Maximum = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["max"]) || 0);
+	};
+	
+	Exps.prototype.Minimum = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["min"]) || 0);
+	};
+	
+	Exps.prototype.Step = function (ret)
+	{
+		ret.set_float(parseFloat(this.elem["step"]) || 0);
+	};
+	
+	pluginProto.exps = new Exps();
+
+}());
+
+// Button
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Plugin class
+cr.plugins_.Button = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	/////////////////////////////////////
+	var pluginProto = cr.plugins_.Button.prototype;
+		
+	/////////////////////////////////////
+	// Object type class
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+
+	var typeProto = pluginProto.Type.prototype;
+
+	// called on startup for each object type
+	typeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Instance class
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	
+	var instanceProto = pluginProto.Instance.prototype;
+
+	// called whenever an instance is created
+	instanceProto.onCreate = function()
+	{
+		this.isCheckbox = (this.properties[0] === 1);
+		
+		this.inputElem = document.createElement("input");
+		
+		if (this.isCheckbox)
+			this.elem = document.createElement("label");
+		else
+			this.elem = this.inputElem;
+			
+		this.labelText = null;
+		
+		this.inputElem.type = (this.isCheckbox ? "checkbox" : "button");
+		this.inputElem.id = this.properties[7];
+		document.body.appendChild(this.elem);
+		
+		if (this.isCheckbox)
+		{
+			this.elem.appendChild(this.inputElem);
+			this.labelText = document.createTextNode(this.properties[1]);
+			this.elem.appendChild(this.labelText);
+			
+			this.inputElem.checked = this.properties[6];
+			
+			// Avoid yucky serif font for checkbox labels
+			this.elem.style.fontFamily = "sans-serif";
+			
+			// Allow setting width and height on label
+			this.elem.style.display = "inline-block";
+			this.elem.style.color = "black";
+		}
+		else
+			this.inputElem.value = this.properties[1];
+		
+		this.elem.title = this.properties[2];
+		this.inputElem.disabled = !this.properties[4];
+		
+		this.autoFontSize = this.properties[5];
+		this.element_hidden = false;
+		
+		if (!this.properties[3])		// initially invisible
+		{
+			this.elem.style.display = "none";
+			this.visible = false;
+			this.element_hidden = true;
+		}
+		
+		this.inputElem.onclick = (function (self) {
+			return function(e) {
+				e.stopPropagation();
+				
+				self.runtime.isInUserInputEvent = true;
+				self.runtime.trigger(cr.plugins_.Button.prototype.cnds.OnClicked, self);
+				self.runtime.isInUserInputEvent = false;
+			};
+		})(this);
+		
+		// Prevent touches reaching the canvas
+		this.elem.addEventListener("touchstart", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		this.elem.addEventListener("touchmove", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		this.elem.addEventListener("touchend", function (e) {
+			e.stopPropagation();
+		}, false);
+		
+		// Prevent clicks being blocked
+		this.elem.addEventListener("mousedown", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.elem.addEventListener("mouseup", function (e) {
+			e.stopPropagation();
+		});
+		
+		// Prevent key presses being blocked by the Keyboard object
+		this.elem.addEventListener("keydown", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.elem.addEventListener("keyup", function (e) {
+			e.stopPropagation();
+		});
+		
+		this.lastLeft = 0;
+		this.lastTop = 0;
+		this.lastRight = 0;
+		this.lastBottom = 0;
+		this.lastWinWidth = 0;
+		this.lastWinHeight = 0;
+			
+		this.updatePosition(true);
+		
+		this.runtime.tickMe(this);
+	};
+	
+	instanceProto.saveToJSON = function ()
+	{
+		var o = {
+			"tooltip": this.elem.title,
+			"disabled": !!this.inputElem.disabled
+		};
+			
+		if (this.isCheckbox)
+		{
+			o["checked"] = !!this.inputElem.checked;
+			o["text"] = this.labelText.nodeValue;
+		}
+		else
+		{
+			o["text"] = this.elem.value;
+		}
+		
+		return o;
+	};
+	
+	instanceProto.loadFromJSON = function (o)
+	{
+		this.elem.title = o["tooltip"];
+		this.inputElem.disabled = o["disabled"];
+		
+		if (this.isCheckbox)
+		{
+			this.inputElem.checked = o["checked"];
+			this.labelText.nodeValue = o["text"];
+		}
+		else
+		{
+			this.elem.value = o["text"];
+		}
+	};
+	
+	instanceProto.onDestroy = function ()
+	{
+		this.elem.parentElement.removeChild(this.elem);
+		this.elem = null;
+	};
+	
+	instanceProto.tick = function ()
+	{
+		this.updatePosition();
+	};
+	
+	var last_canvas_offset = null;
+	var last_checked_tick = -1;
+	
+	instanceProto.updatePosition = function (first)
+	{
+		var left = this.layer.layerToCanvas(this.x, this.y, true);
+		var top = this.layer.layerToCanvas(this.x, this.y, false);
+		var right = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, true);
+		var bottom = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, false);
+		
+		var rightEdge = this.runtime.width / this.runtime.devicePixelRatio;
+		var bottomEdge = this.runtime.height / this.runtime.devicePixelRatio;
+		
+		// Is entirely offscreen or invisible: hide
+		if (!this.visible || !this.layer.visible || right <= 0 || bottom <= 0 || left >= rightEdge || top >= bottomEdge)
+		{
+			if (!this.element_hidden)
+				this.elem.style.display = "none";
+			
+			this.element_hidden = true;
+			return;
+		}
+		
+		// Truncate to canvas size
+		if (left < 1)
+			left = 1;
+		if (top < 1)
+			top = 1;
+		if (right >= rightEdge)
+			right = rightEdge - 1;
+		if (bottom >= bottomEdge)
+			bottom = bottomEdge - 1;
+		
+		var curWinWidth = window.innerWidth;
+		var curWinHeight = window.innerHeight;
+			
+		// Avoid redundant updates
+		if (!first && this.lastLeft === left && this.lastTop === top && this.lastRight === right && this.lastBottom === bottom && this.lastWinWidth === curWinWidth && this.lastWinHeight === curWinHeight)
+		{
+			if (this.element_hidden)
+			{
+				this.elem.style.display = "";
+				this.element_hidden = false;
+			}
+			
+			return;
+		}
+			
+		this.lastLeft = left;
+		this.lastTop = top;
+		this.lastRight = right;
+		this.lastBottom = bottom;
+		this.lastWinWidth = curWinWidth;
+		this.lastWinHeight = curWinHeight;
+		
+		if (this.element_hidden)
+		{
+			this.elem.style.display = "";
+			this.element_hidden = false;
+		}
+		
+		var offx = Math.round(left) + this.runtime.canvas.offsetLeft;
+		var offy = Math.round(top) + this.runtime.canvas.offsetTop;
+		this.elem.style.position = "absolute";
+		this.elem.style.left = offx + "px";
+		this.elem.style.top = offy + "px";
+		this.elem.style.width = Math.round(right - left) + "px";
+		this.elem.style.height = Math.round(bottom - top) + "px";
+		
+		if (this.autoFontSize)
+			this.elem.style.fontSize = ((this.layer.getScale(true) / this.runtime.devicePixelRatio) - 0.2) + "em";
+	};
+	
+	// only called if a layout object
+	instanceProto.draw = function(ctx)
+	{
+	};
+	
+	instanceProto.drawGL = function(glw)
+	{
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+	
+	Cnds.prototype.OnClicked = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.IsChecked = function ()
+	{
+		return this.isCheckbox && this.inputElem.checked;
+	};
+	
+	Cnds.prototype.CompareText = function(text_to_compare, case_sensitive)
+	{
+		var text;
+		if (this.isCheckbox)
+			text = this.labelText.nodeValue;
+		else
+			text = this.elem.value;
+			
+		if (case_sensitive)
+			return text == text_to_compare;
+		else
+			return cr.equals_nocase(text, text_to_compare);
+	};
+	
+	pluginProto.cnds = new Cnds();
+	
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.SetText = function (text)
+	{
+		if (this.isCheckbox)
+			this.labelText.nodeValue = text;
+		else
+			this.elem.value = text;
+	};
+	
+	Acts.prototype.SetTooltip = function (text)
+	{
+		this.elem.title = text;
+	};
+	
+	Acts.prototype.SetVisible = function (vis)
+	{
+		this.visible = (vis !== 0);
+	};
+	
+	Acts.prototype.SetEnabled = function (en)
+	{
+		this.inputElem.disabled = (en === 0);
+	};
+	
+	Acts.prototype.SetFocus = function ()
+	{
+		this.inputElem.focus();
+	};
+	
+	Acts.prototype.SetBlur = function ()
+	{
+		this.inputElem.blur();
+	};
+	
+	Acts.prototype.SetCSSStyle = function (p, v)
+	{
+		this.elem.style[cr.cssToCamelCase(p)] = v;
+	};
+	
+	Acts.prototype.SetChecked = function (c)
+	{
+		if (!this.isCheckbox)
+			return;
+			
+		this.inputElem.checked = (c === 1);
+	};
+	
+	Acts.prototype.ToggleChecked = function ()
+	{
+		if (!this.isCheckbox)
+			return;
+			
+		this.inputElem.checked = !this.inputElem.checked;
+	};
+	
+	pluginProto.acts = new Acts();
+	
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+	
+	Exps.prototype.Text = function (ret)
+	{
+		if (this.isCheckbox)
+			ret.set_string(this.labelText.nodeValue);
+		else
+			ret.set_string(this.elem.value);
+	}
+	
+	pluginProto.exps = new Exps();
+
+}());
+
 // Text
 // ECMAScript 5 strict mode
 
@@ -31672,7 +28954,7 @@ cr.plugins_.Text = function(runtime)
 		
 }());
 
-// Slider bar
+// Mouse
 // ECMAScript 5 strict mode
 
 ;
@@ -31680,7 +28962,407 @@ cr.plugins_.Text = function(runtime)
 
 /////////////////////////////////////
 // Plugin class
-cr.plugins_.sliderbar = function(runtime)
+cr.plugins_.Mouse = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	var pluginProto = cr.plugins_.Mouse.prototype;
+		
+	/////////////////////////////////////
+	// Object type class
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+
+	var typeProto = pluginProto.Type.prototype;
+
+	typeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Instance class
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+		
+		this.buttonMap = new Array(4);		// mouse down states
+		this.mouseXcanvas = 0;				// mouse position relative to canvas
+		this.mouseYcanvas = 0;
+		
+		this.triggerButton = 0;
+		this.triggerType = 0;
+		this.triggerDir = 0;
+		this.handled = false;
+	};
+
+	var instanceProto = pluginProto.Instance.prototype;
+
+	instanceProto.onCreate = function()
+	{
+		var self = this;
+		
+		// Bind mouse events.
+		document.addEventListener("mousemove", function(info) {
+			self.onMouseMove(info);
+		});
+		
+		document.addEventListener("mousedown", function(info) {
+			self.onMouseDown(info);
+		});
+		
+		document.addEventListener("mouseup", function(info) {
+			self.onMouseUp(info);
+		});
+		
+		document.addEventListener("dblclick", function(info) {
+			self.onDoubleClick(info);
+		});
+		
+		var wheelevent = function(info) {
+							self.onWheel(info);
+						};
+						
+		document.addEventListener("mousewheel", wheelevent, false);
+		document.addEventListener("DOMMouseScroll", wheelevent, false);
+	};
+	
+	instanceProto.onMouseMove = function(info)
+	{
+		this.mouseXcanvas = info.pageX - this.runtime.canvas.offsetLeft;
+		this.mouseYcanvas = info.pageY - this.runtime.canvas.offsetTop;
+	};
+	
+	instanceProto.mouseInGame = function ()
+	{
+		if (this.runtime.fullscreen_mode > 0)
+			return true;
+			
+		return this.mouseXcanvas >= 0 && this.mouseYcanvas >= 0
+		    && this.mouseXcanvas < this.runtime.width && this.mouseYcanvas < this.runtime.height;
+	};
+
+	instanceProto.onMouseDown = function(info)
+	{
+		// Ignore mousedowns outside the canvas
+		if (!this.mouseInGame())
+			return;
+		
+		// Update button state
+		this.buttonMap[info.which] = true;
+		
+		this.runtime.isInUserInputEvent = true;
+		
+		// Trigger OnAnyClick
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnAnyClick, this);
+		
+		// Trigger OnClick & OnObjectClicked
+		this.triggerButton = info.which - 1;	// 1-based
+		this.triggerType = 0;					// single click
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnClick, this);
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnObjectClicked, this);
+		
+		this.runtime.isInUserInputEvent = false;
+	};
+
+	instanceProto.onMouseUp = function(info)
+	{
+		// Ignore mouseup if didn't see a corresponding mousedown
+		if (!this.buttonMap[info.which])
+			return;
+		
+		if (this.runtime.had_a_click && !this.runtime.isMobile)
+			info.preventDefault();
+			
+		this.runtime.had_a_click = true;
+		
+		// Update button state
+		this.buttonMap[info.which] = false;
+		
+		this.runtime.isInUserInputEvent = true;
+		
+		// Trigger OnRelease
+		this.triggerButton = info.which - 1;	// 1-based
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnRelease, this);
+		
+		this.runtime.isInUserInputEvent = false;
+	};
+
+	instanceProto.onDoubleClick = function(info)
+	{
+		// Ignore doubleclicks outside the canvas
+		if (!this.mouseInGame())
+			return;
+			
+		info.preventDefault();
+		
+		this.runtime.isInUserInputEvent = true;
+		
+		// Trigger OnClick & OnObjectClicked
+		this.triggerButton = info.which - 1;	// 1-based
+		this.triggerType = 1;					// double click
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnClick, this);
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnObjectClicked, this);
+		
+		this.runtime.isInUserInputEvent = false;
+	};
+	
+	instanceProto.onWheel = function (info)
+	{
+		var delta = info.wheelDelta ? info.wheelDelta : info.detail ? -info.detail : 0;
+		
+		this.triggerDir = (delta < 0 ? 0 : 1);
+		this.handled = false;
+		
+		this.runtime.isInUserInputEvent = true;
+		
+		this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnWheel, this);
+		
+		this.runtime.isInUserInputEvent = false;
+		
+		if (this.handled && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+	};
+	
+	instanceProto.onWindowBlur = function ()
+	{
+		// Fire "On button up" for any buttons held down, to prevent stuck buttons
+		var i, len;
+		for (i = 0, len = this.buttonMap.length; i < len; ++i)
+		{
+			// Not down
+			if (!this.buttonMap[i])
+				continue;
+			
+			// Update button state
+			this.buttonMap[i] = false;
+			
+			// Trigger OnRelease
+			this.triggerButton = i - 1;
+			this.runtime.trigger(cr.plugins_.Mouse.prototype.cnds.OnRelease, this);
+		}
+	};
+	
+	instanceProto.isMouseOverCanvas = function ()
+	{
+		return this.mouseXcanvas >= 0 && this.mouseYcanvas >= 0
+		    && this.mouseXcanvas < this.runtime.width && this.mouseYcanvas < this.runtime.height;
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+
+	Cnds.prototype.OnClick = function (button, type)
+	{
+		return button === this.triggerButton && type === this.triggerType;
+	};
+	
+	Cnds.prototype.OnAnyClick = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.IsButtonDown = function (button)
+	{
+		return this.buttonMap[button + 1];
+	};
+	
+	Cnds.prototype.OnRelease = function (button)
+	{
+		return button === this.triggerButton;
+	};
+	
+	Cnds.prototype.IsOverObject = function (obj)
+	{
+		if (!this.isMouseOverCanvas())
+			return;
+		
+		// We need to handle invert manually.  If inverted, turn invert off on the condition,
+		// and instead pass it to testAndSelectCanvasPointOverlap() which does SOL picking
+		// based on the invert status.
+		var cnd = this.runtime.getCurrentCondition();
+
+		var mx = this.mouseXcanvas;
+		var my = this.mouseYcanvas;
+		
+		return cr.xor(this.runtime.testAndSelectCanvasPointOverlap(obj, mx, my, cnd.inverted), cnd.inverted);
+	};
+	
+	Cnds.prototype.OnObjectClicked = function (button, type, obj)
+	{
+		if (button !== this.triggerButton || type !== this.triggerType)
+			return false;	// wrong click type
+		
+		if (!this.isMouseOverCanvas())
+			return;
+		
+		return this.runtime.testAndSelectCanvasPointOverlap(obj, this.mouseXcanvas, this.mouseYcanvas, false);
+	};
+	
+	Cnds.prototype.OnWheel = function (dir)
+	{
+		this.handled = true;
+		return dir === this.triggerDir;
+	};
+	
+	pluginProto.cnds = new Cnds();
+	
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+	
+	// Either string or sprite animation frame of last set cursor, to skip redundant settings
+	var lastSetCursor = null;
+	
+	Acts.prototype.SetCursor = function (c)
+	{
+		var cursor_style = ["auto", "pointer", "text", "crosshair", "move", "help", "wait", "none"][c];
+		
+		if (lastSetCursor === cursor_style)
+			return;		// redundant
+		
+		lastSetCursor = cursor_style;
+		document.body.style.cursor = cursor_style;
+	};
+	
+	Acts.prototype.SetCursorSprite = function (obj)
+	{
+		if (this.runtime.isMobile || !obj)
+			return;
+			
+		var inst = obj.getFirstPicked();
+		
+		if (!inst || !inst.curFrame)
+			return;
+			
+		var frame = inst.curFrame;
+		
+		if (lastSetCursor === frame)
+			return;		// already set this frame
+		
+		lastSetCursor = frame;
+		var datauri = frame.getDataUri();
+		
+		var cursor_style = "url(" + datauri + ") " + Math.round(frame.hotspotX * frame.width) + " " + Math.round(frame.hotspotY * frame.height) + ", auto";
+		
+		// Work around a bug in Blink: changing the cursor between different data URLs does not have any effect.
+		// First clearing the cursor then setting it again causes the cursor to take effect.
+		document.body.style.cursor = "";
+		document.body.style.cursor = cursor_style;
+	};
+	
+	pluginProto.acts = new Acts();
+
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+
+	Exps.prototype.X = function (ret, layerparam)
+	{
+		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
+		
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxX = layer.parallaxX;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxX = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, true));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxX = oldParallaxX;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, true));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.Y = function (ret, layerparam)
+	{
+		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
+		
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxY = layer.parallaxY;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxY = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, false));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxY = oldParallaxY;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.mouseXcanvas, this.mouseYcanvas, false));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.AbsoluteX = function (ret)
+	{
+		ret.set_float(this.mouseXcanvas);
+	};
+	
+	Exps.prototype.AbsoluteY = function (ret)
+	{
+		ret.set_float(this.mouseYcanvas);
+	};
+	
+	pluginProto.exps = new Exps();
+	
+}());
+
+
+// Particles
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Plugin class
+cr.plugins_.Particles = function(runtime)
 {
 	this.runtime = runtime;
 };
@@ -31688,7 +29370,7 @@ cr.plugins_.sliderbar = function(runtime)
 (function ()
 {
 	/////////////////////////////////////
-	var pluginProto = cr.plugins_.sliderbar.prototype;
+	var pluginProto = cr.plugins_.Particles.prototype;
 		
 	/////////////////////////////////////
 	// Object type class
@@ -31703,6 +29385,878 @@ cr.plugins_.sliderbar = function(runtime)
 	// called on startup for each object type
 	typeProto.onCreate = function()
 	{
+		if (this.is_family)
+			return;
+		
+		this.texture_img = this.runtime.findWaitingTexture(this.texture_file);
+		
+		if (!this.texture_img)
+		{
+			this.texture_img = new Image();
+			this.texture_img.cr_src = this.texture_file;
+			this.texture_img.cr_filesize = this.texture_filesize;
+			this.texture_img.c2webGL_texture = null;
+			this.runtime.waitForImageLoad(this.texture_img, this.texture_file);
+		}
+		
+		this.spriteX = this.texture_data[3];
+		this.spriteY = this.texture_data[4];
+		this.spriteWidth = this.texture_data[5];
+		this.spriteHeight = this.texture_data[6];
+	};
+	
+	typeProto.onLostWebGLContext = function ()
+	{
+		if (this.is_family)
+			return;
+			
+		this.webGL_texture = null;
+	};
+	
+	typeProto.createParticleTexture = function ()
+	{
+		// Shortcut to correctly render spritesheeted particle in WebGL: cut the image out of its spritesheet
+		// and create a texture from that. TODO: render directly from spritesheet texture via texture coords.
+		var tmpcanvas = document.createElement("canvas");
+		var w = this.spriteWidth;
+		var h = this.spriteHeight;
+		tmpcanvas.width = w;
+		tmpcanvas.height = h;
+		var tmpctx = tmpcanvas.getContext("2d");
+		tmpctx.drawImage(this.texture_img, this.spriteX, this.spriteY, w, h, 0, 0, w, h);
+		
+		this.webGL_texture = this.runtime.glwrap.loadTexture(tmpcanvas, true, this.runtime.linearSampling, this.texture_pixelformat);
+	};
+	
+	typeProto.onRestoreWebGLContext = function ()
+	{
+		// No need to create textures if no instances exist, will create on demand
+		if (this.is_family || !this.instances.length)
+			return;
+		
+		if (!this.webGL_texture)
+		{
+			this.createParticleTexture();
+		}
+	};
+	
+	typeProto.loadTextures = function ()
+	{
+		if (this.is_family || this.webGL_texture || !this.runtime.glwrap)
+			return;
+		
+		this.createParticleTexture();
+	};
+	
+	typeProto.unloadTextures = function ()
+	{
+		if (this.is_family || this.instances.length || !this.webGL_texture)
+			return;
+
+		this.runtime.glwrap.deleteTexture(this.webGL_texture);
+		this.webGL_texture = null;
+	};
+	
+	typeProto.preloadCanvas2D = function (ctx)
+	{
+		// draw to preload, browser should lazy load the texture
+		ctx.drawImage(this.texture_img, 0, 0);
+	};
+	
+	/////////////////////////////////////
+	// Particle class
+	function Particle(owner)
+	{
+		this.owner = owner;
+		this.active = false;
+		this.x = 0;
+		this.y = 0;
+		this.speed = 0;
+		this.angle = 0;
+		this.opacity = 1;
+		this.grow = 0;
+		this.size = 0;
+		this.gs = 0;			// gravity speed
+		this.age = 0;
+		cr.seal(this);
+	};
+	
+	Particle.prototype.init = function ()
+	{
+		var owner = this.owner;
+		this.x = owner.x - (owner.xrandom / 2) + (Math.random() * owner.xrandom);
+		this.y = owner.y - (owner.yrandom / 2) + (Math.random() * owner.yrandom);
+		
+		this.speed = owner.initspeed - (owner.speedrandom / 2) + (Math.random() * owner.speedrandom);
+		this.angle = owner.angle - (owner.spraycone / 2) + (Math.random() * owner.spraycone);
+		this.opacity = owner.initopacity;
+		this.size = owner.initsize - (owner.sizerandom / 2) + (Math.random() * owner.sizerandom);
+		this.grow = owner.growrate - (owner.growrandom / 2) + (Math.random() * owner.growrandom);
+		this.gs = 0;
+		this.age = 0;
+	};
+	
+	Particle.prototype.tick = function (dt)
+	{
+		var owner = this.owner;
+		
+		// Move
+		this.x += Math.cos(this.angle) * this.speed * dt;
+		this.y += Math.sin(this.angle) * this.speed * dt;
+		
+		// Apply gravity
+		this.y += this.gs * dt;
+		
+		// Adjust lifetime parameters
+		this.speed += owner.acc * dt;
+		this.size += this.grow * dt;
+		this.gs += owner.g * dt;
+		this.age += dt;
+		
+		// Destroy particle if shrunk to less than a pixel in size
+		if (this.size < 1)
+		{
+			this.active = false;
+			return;
+		}
+		
+		if (owner.lifeanglerandom !== 0)
+			this.angle += (Math.random() * owner.lifeanglerandom * dt) - (owner.lifeanglerandom * dt / 2);
+			
+		if (owner.lifespeedrandom !== 0)
+			this.speed += (Math.random() * owner.lifespeedrandom * dt) - (owner.lifespeedrandom * dt / 2);
+			
+		if (owner.lifeopacityrandom !== 0)
+		{
+			this.opacity += (Math.random() * owner.lifeopacityrandom * dt) - (owner.lifeopacityrandom * dt / 2);
+			
+			if (this.opacity < 0)
+				this.opacity = 0;
+			else if (this.opacity > 1)
+				this.opacity = 1;
+		}
+		
+		// Make inactive after timeout for both fade and timeout settings
+		if (owner.destroymode <= 1 && this.age >= owner.timeout)
+		{
+			this.active = false;
+		}
+		// Or make inactive when stopped
+		if (owner.destroymode === 2 && this.speed <= 0)
+		{
+			this.active = false;
+		}
+	};
+	
+	Particle.prototype.draw = function (ctx)
+	{
+		var curopacity = this.owner.opacity * this.opacity;
+		
+		if (curopacity === 0)
+			return;
+		
+		// Modify opacity for fade-out
+		if (this.owner.destroymode === 0)
+			curopacity *= 1 - (this.age / this.owner.timeout);
+			
+		ctx.globalAlpha = curopacity;
+			
+		var drawx = this.x - this.size / 2;
+		var drawy = this.y - this.size / 2;
+		
+		if (this.owner.runtime.pixel_rounding)
+		{
+			drawx = (drawx + 0.5) | 0;
+			drawy = (drawy + 0.5) | 0;
+		}
+		
+		var type = this.owner.type;
+		ctx.drawImage(type.texture_img, type.spriteX, type.spriteY, type.spriteWidth, type.spriteHeight, drawx, drawy, this.size, this.size);
+	};
+	
+	Particle.prototype.drawGL = function (glw)
+	{
+		var curopacity = this.owner.opacity * this.opacity;
+		
+		// Modify opacity for fade-out
+		if (this.owner.destroymode === 0)
+			curopacity *= 1 - (this.age / this.owner.timeout);
+		
+		var drawsize = this.size;
+		var scaleddrawsize = drawsize * this.owner.particlescale;
+		var drawx = this.x - drawsize / 2;
+		var drawy = this.y - drawsize / 2;
+		
+		if (this.owner.runtime.pixel_rounding)
+		{
+			drawx = (drawx + 0.5) | 0;
+			drawy = (drawy + 0.5) | 0;
+		}
+		
+		// Don't bother issuing a quad for a particle smaller than 1px, it probably won't be visible anyway.
+		if (scaleddrawsize < 1 || curopacity === 0)
+			return;
+			
+		// Quad if outside the allowed point range, otherwise issue a point.  Hopefully there won't be too much
+		// quad <-> point batch switching.  Note we have to manually scale particles which don't take in to account
+		// the layout zoom etc. otherwise.
+		if (scaleddrawsize < glw.minPointSize || scaleddrawsize > glw.maxPointSize)
+		{
+			glw.setOpacity(curopacity);
+			glw.quad(drawx, drawy, drawx + drawsize, drawy, drawx + drawsize, drawy + drawsize, drawx, drawy + drawsize);
+		}
+		else
+			glw.point(this.x, this.y, scaleddrawsize, curopacity);
+	};
+	
+	Particle.prototype.left = function ()
+	{
+		return this.x - this.size / 2;
+	};
+	
+	Particle.prototype.right = function ()
+	{
+		return this.x + this.size / 2;
+	};
+	
+	Particle.prototype.top = function ()
+	{
+		return this.y - this.size / 2;
+	};
+	
+	Particle.prototype.bottom = function ()
+	{
+		return this.y + this.size / 2;
+	};
+
+	/////////////////////////////////////
+	// Instance class
+	pluginProto.Instance = function(type)
+	{
+		this.type = type;
+		this.runtime = type.runtime;
+	};
+	
+	var instanceProto = pluginProto.Instance.prototype;
+	
+	// global array of particles to recycle
+	var deadparticles = [];
+
+	// called whenever an instance is created
+	instanceProto.onCreate = function()
+	{
+		var props = this.properties;
+		
+		this.rate = props[0];
+		this.spraycone = cr.to_radians(props[1]);
+		this.spraytype = props[2];			// 0 = continuous, 1 = one-shot
+		this.spraying = true;				// for continuous mode only
+		
+		this.initspeed = props[3];
+		this.initsize = props[4];
+		this.initopacity = props[5] / 100.0;
+		this.growrate = props[6];
+		this.xrandom = props[7];
+		this.yrandom = props[8];
+		this.speedrandom = props[9];
+		this.sizerandom = props[10];
+		this.growrandom = props[11];
+		this.acc = props[12];
+		this.g = props[13];
+		this.lifeanglerandom = props[14];
+		this.lifespeedrandom = props[15];
+		this.lifeopacityrandom = props[16];
+		this.destroymode = props[17];		// 0 = fade, 1 = timeout, 2 = stopped
+		this.timeout = props[18];
+		
+		this.particleCreateCounter = 0;
+		this.particlescale = 1;
+		
+		// Dynamically set the bounding box to surround all created particles
+		this.particleBoxLeft = this.x;
+		this.particleBoxTop = this.y;
+		this.particleBoxRight = this.x;
+		this.particleBoxBottom = this.y;
+		
+		this.add_bbox_changed_callback(function (self) {
+			self.bbox.set(self.particleBoxLeft, self.particleBoxTop, self.particleBoxRight, self.particleBoxBottom);
+			self.bquad.set_from_rect(self.bbox);
+			self.bbox_changed = false;
+			self.update_collision_cell();
+			self.update_render_cell();
+		});
+		
+		// Check for recycling
+		if (!this.recycled)
+			this.particles = [];
+		
+		this.runtime.tickMe(this);
+		
+		this.type.loadTextures();
+			
+		// If in one-shot mode, create all particles now
+		if (this.spraytype === 1)
+		{
+			for (var i = 0; i < this.rate; i++)
+				this.allocateParticle().opacity = 0;
+		}
+		
+		this.first_tick = true;		// for re-init'ing one-shot particles on first tick so they assume any new angle/position
+	};
+	
+	instanceProto.saveToJSON = function ()
+	{
+		var o = {
+			"r": this.rate,
+			"sc": this.spraycone,
+			"st": this.spraytype,
+			"s": this.spraying,
+			"isp": this.initspeed,
+			"isz": this.initsize,
+			"io": this.initopacity,
+			"gr": this.growrate,
+			"xr": this.xrandom,
+			"yr": this.yrandom,
+			"spr": this.speedrandom,
+			"szr": this.sizerandom,
+			"grnd": this.growrandom,
+			"acc": this.acc,
+			"g": this.g,
+			"lar": this.lifeanglerandom,
+			"lsr": this.lifespeedrandom,
+			"lor": this.lifeopacityrandom,
+			"dm": this.destroymode,
+			"to": this.timeout,
+			"pcc": this.particleCreateCounter,
+			"ft": this.first_tick,
+			"p": []
+		};
+		
+		var i, len, p;
+		var arr = o["p"];
+
+		for (i = 0, len = this.particles.length; i < len; i++)
+		{
+			p = this.particles[i];
+			arr.push([p.x, p.y, p.speed, p.angle, p.opacity, p.grow, p.size, p.gs, p.age]);
+		}
+		
+		return o;
+	};
+	
+	instanceProto.loadFromJSON = function (o)
+	{
+		this.rate = o["r"];
+		this.spraycone = o["sc"];
+		this.spraytype = o["st"];
+		this.spraying = o["s"];
+		this.initspeed = o["isp"];
+		this.initsize = o["isz"];
+		this.initopacity = o["io"];
+		this.growrate = o["gr"];
+		this.xrandom = o["xr"];
+		this.yrandom = o["yr"];
+		this.speedrandom = o["spr"];
+		this.sizerandom = o["szr"];
+		this.growrandom = o["grnd"];
+		this.acc = o["acc"];
+		this.g = o["g"];
+		this.lifeanglerandom = o["lar"];
+		this.lifespeedrandom = o["lsr"];
+		this.lifeopacityrandom = o["lor"];
+		this.destroymode = o["dm"];
+		this.timeout = o["to"];
+		this.particleCreateCounter = o["pcc"];
+		this.first_tick = o["ft"];
+		
+		// recycle all particles then load by reallocating them
+		deadparticles.push.apply(deadparticles, this.particles);
+		cr.clearArray(this.particles);
+		
+		var i, len, p, d;
+		var arr = o["p"];
+		
+		for (i = 0, len = arr.length; i < len; i++)
+		{
+			p = this.allocateParticle();
+			d = arr[i];
+			p.x = d[0];
+			p.y = d[1];
+			p.speed = d[2];
+			p.angle = d[3];
+			p.opacity = d[4];
+			p.grow = d[5];
+			p.size = d[6];
+			p.gs = d[7];
+			p.age = d[8];
+		}
+	};
+	
+	instanceProto.onDestroy = function ()
+	{
+		// recycle all particles
+		deadparticles.push.apply(deadparticles, this.particles);
+		cr.clearArray(this.particles);
+	};
+	
+	instanceProto.allocateParticle = function ()
+	{
+		var p;
+		
+		if (deadparticles.length)
+		{
+			p = deadparticles.pop();
+			p.owner = this;
+		}
+		else
+			p = new Particle(this);
+		
+		this.particles.push(p);
+		p.active = true;
+		return p;
+	};
+	
+	instanceProto.tick = function()
+	{
+		var dt = this.runtime.getDt(this);
+		
+		var i, len, p, n, j;
+		
+		// Create spray particles for this tick
+		if (this.spraytype === 0 && this.spraying)
+		{
+			this.particleCreateCounter += dt * this.rate;
+			
+			n = cr.floor(this.particleCreateCounter);
+			this.particleCreateCounter -= n;
+			
+			for (i = 0; i < n; i++)
+			{
+				p = this.allocateParticle();
+				p.init();
+			}
+		}
+		
+		this.particleBoxLeft = this.x;
+		this.particleBoxTop = this.y;
+		this.particleBoxRight = this.x;
+		this.particleBoxBottom = this.y;
+		
+		for (i = 0, j = 0, len = this.particles.length; i < len; i++)
+		{
+			p = this.particles[i];
+			this.particles[j] = p;
+			
+			this.runtime.redraw = true;
+			
+			// If the first tick for one-shot particles, call init() now so the particles
+			// assume any changed position or angle of the Particles object.
+			if (this.spraytype === 1 && this.first_tick)
+				p.init();
+			
+			p.tick(dt);
+			
+			// Particle is dead: move to deadparticles for later recycling
+			if (!p.active)
+			{
+				deadparticles.push(p);
+				continue;
+			}
+			
+			// measure bounding box
+			if (p.left() < this.particleBoxLeft)
+				this.particleBoxLeft = p.left();
+			if (p.right() > this.particleBoxRight)
+				this.particleBoxRight = p.right();
+			if (p.top() < this.particleBoxTop)
+				this.particleBoxTop = p.top();
+			if (p.bottom() > this.particleBoxBottom)
+				this.particleBoxBottom = p.bottom();
+			
+			j++;
+		}
+		
+		cr.truncateArray(this.particles, j);
+		
+		// Update the bounding box based on active particles
+		this.set_bbox_changed();
+		
+		this.first_tick = false;
+		
+		// If one-shot and all particles are dead, destroy the whole object
+		if (this.spraytype === 1 && this.particles.length === 0)
+			this.runtime.DestroyInstance(this);
+	};
+	
+	// only called if a layout object - draw to a canvas 2D context
+	instanceProto.draw = function (ctx)
+	{
+		var i, len, p, layer = this.layer;
+		
+		for (i = 0, len = this.particles.length; i < len; i++)
+		{
+			p = this.particles[i];
+			
+			// Only draw active and on-screen particles
+			if (p.right() >= layer.viewLeft && p.bottom() >= layer.viewTop && p.left() <= layer.viewRight && p.top() <= layer.viewBottom)
+			{
+				p.draw(ctx);
+			}
+		}
+	};
+	
+	// only called if a layout object in WebGL mode - draw to the WebGL context
+	// 'glw' is not a WebGL context, it's a wrapper - you can find its methods in GLWrap.js in the install
+	// directory or just copy what other plugins do.
+	instanceProto.drawGL = function (glw)
+	{
+		this.particlescale = this.layer.getScale();
+		glw.setTexture(this.type.webGL_texture);
+		
+		var i, len, p, layer = this.layer;
+		
+		for (i = 0, len = this.particles.length; i < len; i++)
+		{
+			p = this.particles[i];
+			
+			// Only draw active and on-screen particles
+			if (p.right() >= layer.viewLeft && p.bottom() >= layer.viewTop && p.left() <= layer.viewRight && p.top() <= layer.viewBottom)
+			{
+				p.drawGL(glw);
+			}
+		}
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+
+	// the example condition
+	Cnds.prototype.IsSpraying = function ()
+	{
+		return this.spraying;
+	};
+	
+	pluginProto.cnds = new Cnds();
+	
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.SetSpraying = function (set_)
+	{
+		this.spraying = (set_ !== 0);
+	};
+	
+	Acts.prototype.SetEffect = function (effect)
+	{
+		this.blend_mode = effect;
+		this.compositeOp = cr.effectToCompositeOp(effect);
+		cr.setGLBlend(this, effect, this.runtime.gl);
+		this.runtime.redraw = true;
+	};
+	
+	Acts.prototype.SetRate = function (x)
+	{
+		this.rate = x;
+		var diff, i;
+		
+		// In one-shot mode, if still in the first tick, adjust the number of particles created 
+		if (this.spraytype === 1 && this.first_tick)
+		{
+			// Reducing particle count
+			if (x < this.particles.length)
+			{
+				diff = this.particles.length - x;
+				
+				for (i = 0; i < diff; i++)
+					deadparticles.push(this.particles.pop());
+			}
+			// Increasing particle count
+			else if (x > this.particles.length)
+			{
+				diff = x - this.particles.length;
+				
+				for (i = 0; i < diff; i++)
+					this.allocateParticle().opacity = 0;
+			}
+		}
+	};
+	
+	Acts.prototype.SetSprayCone = function (x)
+	{
+		this.spraycone = cr.to_radians(x);
+	};
+	
+	Acts.prototype.SetInitSpeed = function (x)
+	{
+		this.initspeed = x;
+	};
+	
+	Acts.prototype.SetInitSize = function (x)
+	{
+		this.initsize = x;
+	};
+	
+	Acts.prototype.SetInitOpacity = function (x)
+	{
+		this.initopacity = x / 100;
+	};
+	
+	Acts.prototype.SetGrowRate = function (x)
+	{
+		this.growrate = x;
+	};
+	
+	Acts.prototype.SetXRandomiser = function (x)
+	{
+		this.xrandom = x;
+	};
+	
+	Acts.prototype.SetYRandomiser = function (x)
+	{
+		this.yrandom = x;
+	};
+	
+	Acts.prototype.SetSpeedRandomiser = function (x)
+	{
+		this.speedrandom = x;
+	};
+	
+	Acts.prototype.SetSizeRandomiser = function (x)
+	{
+		this.sizerandom = x;
+	};
+	
+	Acts.prototype.SetGrowRateRandomiser = function (x)
+	{
+		this.growrandom = x;
+	};
+	
+	Acts.prototype.SetParticleAcc = function (x)
+	{
+		this.acc = x;
+	};
+	
+	Acts.prototype.SetGravity = function (x)
+	{
+		this.g = x;
+	};
+	
+	Acts.prototype.SetAngleRandomiser = function (x)
+	{
+		this.lifeanglerandom = x;
+	};
+	
+	Acts.prototype.SetLifeSpeedRandomiser = function (x)
+	{
+		this.lifespeedrandom = x;
+	};
+	
+	Acts.prototype.SetOpacityRandomiser = function (x)
+	{
+		this.lifeopacityrandom = x;
+	};
+	
+	Acts.prototype.SetTimeout = function (x)
+	{
+		this.timeout = x;
+	};
+	
+	pluginProto.acts = new Acts();
+	
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+	
+	Exps.prototype.ParticleCount = function (ret)
+	{
+		ret.set_int(this.particles.length);
+	};
+	
+	Exps.prototype.Rate = function (ret)
+	{
+		ret.set_float(this.rate);
+	};
+	
+	Exps.prototype.SprayCone = function (ret)
+	{
+		ret.set_float(cr.to_degrees(this.spraycone));
+	};
+	
+	Exps.prototype.InitSpeed = function (ret)
+	{
+		ret.set_float(this.initspeed);
+	};
+	
+	Exps.prototype.InitSize = function (ret)
+	{
+		ret.set_float(this.initsize);
+	};
+	
+	Exps.prototype.InitOpacity = function (ret)
+	{
+		ret.set_float(this.initopacity * 100);
+	};
+	
+	Exps.prototype.InitGrowRate = function (ret)
+	{
+		ret.set_float(this.growrate);
+	};
+	
+	Exps.prototype.XRandom = function (ret)
+	{
+		ret.set_float(this.xrandom);
+	};
+	
+	Exps.prototype.YRandom = function (ret)
+	{
+		ret.set_float(this.yrandom);
+	};
+	
+	Exps.prototype.InitSpeedRandom = function (ret)
+	{
+		ret.set_float(this.speedrandom);
+	};
+	
+	Exps.prototype.InitSizeRandom = function (ret)
+	{
+		ret.set_float(this.sizerandom);
+	};
+	
+	Exps.prototype.InitGrowRandom = function (ret)
+	{
+		ret.set_float(this.growrandom);
+	};
+	
+	Exps.prototype.ParticleAcceleration = function (ret)
+	{
+		ret.set_float(this.acc);
+	};
+	
+	Exps.prototype.Gravity = function (ret)
+	{
+		ret.set_float(this.g);
+	};
+	
+	Exps.prototype.ParticleAngleRandom = function (ret)
+	{
+		ret.set_float(this.lifeanglerandom);
+	};
+	
+	Exps.prototype.ParticleSpeedRandom = function (ret)
+	{
+		ret.set_float(this.lifespeedrandom);
+	};
+	
+	Exps.prototype.ParticleOpacityRandom = function (ret)
+	{
+		ret.set_float(this.lifeopacityrandom);
+	};
+	
+	Exps.prototype.Timeout = function (ret)
+	{
+		ret.set_float(this.timeout);
+	};
+	
+	pluginProto.exps = new Exps();
+
+}());
+
+// Tiled Background
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Plugin class
+cr.plugins_.TiledBg = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	var pluginProto = cr.plugins_.TiledBg.prototype;
+		
+	/////////////////////////////////////
+	// Object type class
+	pluginProto.Type = function(plugin)
+	{
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
+	};
+
+	var typeProto = pluginProto.Type.prototype;
+
+	typeProto.onCreate = function()
+	{
+		if (this.is_family)
+			return;
+		
+		this.texture_img = this.runtime.findWaitingTexture(this.texture_file);
+		
+		if (!this.texture_img)
+		{
+			this.texture_img = new Image();
+			this.texture_img.cr_src = this.texture_file;
+			this.texture_img.cr_filesize = this.texture_filesize;
+			this.texture_img.c2webGL_texture = null;
+			this.runtime.waitForImageLoad(this.texture_img, this.texture_file);
+		}
+		
+		this.pattern = null;
+		this.webGL_texture = null;
+	};
+	
+	typeProto.onLostWebGLContext = function ()
+	{
+		if (this.is_family)
+			return;
+			
+		this.webGL_texture = null;
+	};
+	
+	typeProto.onRestoreWebGLContext = function ()
+	{
+		// No need to create textures if no instances exist, will create on demand
+		if (this.is_family || !this.instances.length)
+			return;
+		
+		if (!this.webGL_texture)
+		{
+			this.webGL_texture = this.runtime.glwrap.loadTexture(this.texture_img, true, this.runtime.linearSampling, this.texture_pixelformat);
+		}
+		
+		var i, len;
+		for (i = 0, len = this.instances.length; i < len; i++)
+			this.instances[i].webGL_texture = this.webGL_texture;
+	};
+	
+	typeProto.loadTextures = function ()
+	{
+		if (this.is_family || this.webGL_texture || !this.runtime.glwrap)
+			return;
+			
+		this.webGL_texture = this.runtime.glwrap.loadTexture(this.texture_img, true, this.runtime.linearSampling, this.texture_pixelformat);
+	};
+	
+	typeProto.unloadTextures = function ()
+	{
+		// Don't release textures if any instances still exist, they are probably using them
+		if (this.is_family || this.instances.length || !this.webGL_texture)
+			return;
+		
+		this.runtime.glwrap.deleteTexture(this.webGL_texture);
+		this.webGL_texture = null;
+	};
+	
+	typeProto.preloadCanvas2D = function (ctx)
+	{
+		// draw to preload, browser should lazy load the texture
+		ctx.drawImage(this.texture_img, 0, 0);
 	};
 
 	/////////////////////////////////////
@@ -31715,220 +30269,123 @@ cr.plugins_.sliderbar = function(runtime)
 	
 	var instanceProto = pluginProto.Instance.prototype;
 
-	// called whenever an instance is created
 	instanceProto.onCreate = function()
 	{
-		this.elem = document.createElement("input");
-		this.elem.type = "range";
+		this.visible = this.properties[0];									// 0=visible, 1=invisible
+		this.rcTex = new cr.rect(0, 0, 0, 0);
 		
-		this.elem["max"] = this.properties[2];
-		this.elem["min"] = this.properties[1];
-		this.elem["step"] = this.properties[3];
-		this.elem["value"] = this.properties[0];
+		this.has_own_texture = false;										// true if a texture loaded in from URL
+		this.texture_img = this.type.texture_img;
 		
-		this.elem.disabled = !this.properties[6];
-		this.elem.id = this.properties[7];
-		this.elem.title = this.properties[4];
-		document.body.appendChild(this.elem);
-		
-		this.element_hidden = false;
-		
-		if (!this.properties[5])			// initially invisible
+		if (this.runtime.glwrap)
 		{
-			this.elem.style.display = "none";
-			this.visible = false;
-			this.element_hidden = true;
-		}
-		
-		this.elem.onclick = (function (self) {
-			return function(e) {
-				e.stopPropagation();
-				
-				self.runtime.isInUserInputEvent = true;
-				self.runtime.trigger(cr.plugins_.sliderbar.prototype.cnds.OnClicked, self);
-				self.runtime.isInUserInputEvent = false;
-			};
-		})(this);
-		
-		this.elem.onchange = (function (self) {
-			return function(e) {
-				self.runtime.isInUserInputEvent = true;
-				self.runtime.trigger(cr.plugins_.sliderbar.prototype.cnds.OnChanged, self);
-				self.runtime.isInUserInputEvent = false;
-			};
-		})(this);
-		
-		// Prevent touches reaching the canvas
-		this.elem.addEventListener("touchstart", function (e) {
-			e.stopPropagation();
-		}, false);
-		
-		this.elem.addEventListener("touchmove", function (e) {
-			e.stopPropagation();
-		}, false);
-		
-		this.elem.addEventListener("touchend", function (e) {
-			e.stopPropagation();
-		}, false);
-		
-		// Prevent clicks being blocked
-		this.elem.addEventListener("mousedown", function (e) {
-			e.stopPropagation();
-		});
-		
-		this.elem.addEventListener("mouseup", function (e) {
-			e.stopPropagation();
-		});
-		
-		// Prevent key presses being blocked by the Keyboard object
-		this.elem.addEventListener("keydown", function (e) {
-			e.stopPropagation();
-		});
-		
-		this.elem.addEventListener("keyup", function (e) {
-			e.stopPropagation();
-		});
-		
-		this.lastLeft = 0;
-		this.lastTop = 0;
-		this.lastRight = 0;
-		this.lastBottom = 0;
-		this.lastWinWidth = 0;
-		this.lastWinHeight = 0;
+			// Create WebGL texture if type doesn't have it yet
+			this.type.loadTextures();
 			
-		this.updatePosition(true);
-		
-		this.runtime.tickMe(this);
+			this.webGL_texture = this.type.webGL_texture;
+		}
+		else
+		{
+			// Create the pattern if the type doesn't have one yet
+			if (!this.type.pattern)
+				this.type.pattern = this.runtime.ctx.createPattern(this.type.texture_img, "repeat");
+			
+			this.pattern = this.type.pattern;
+		}
 	};
 	
-	instanceProto.saveToJSON = function ()
+	instanceProto.afterLoad = function ()
 	{
-		var o = {
-			"v": this.elem["value"],
-			"mi": this.elem["min"],
-			"ma": this.elem["max"],
-			"s": this.elem["step"]
-		};
-		
-		return o;
-	};
-	
-	instanceProto.loadFromJSON = function (o)
-	{
-		this.elem["min"] = o["mi"];
-		this.elem["max"] = o["ma"];
-		this.elem["step"] = o["s"];
-		this.elem["value"] = o["v"];
+		// If has own texture, reset to normal texture since the texture isn't saved with the state
+		this.has_own_texture = false;
+		this.texture_img = this.type.texture_img;
 	};
 	
 	instanceProto.onDestroy = function ()
 	{
-		this.elem.parentElement.removeChild(this.elem);
-		this.elem = null;
-	};
-	
-	instanceProto.tick = function ()
-	{
-		this.updatePosition();
-	};
-	
-	var last_canvas_offset = null;
-	var last_checked_tick = -1;
-	
-	instanceProto.updatePosition = function (first)
-	{
-		var left = this.layer.layerToCanvas(this.x, this.y, true);
-		var top = this.layer.layerToCanvas(this.x, this.y, false);
-		var right = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, true);
-		var bottom = this.layer.layerToCanvas(this.x + this.width, this.y + this.height, false);
-		
-		var rightEdge = this.runtime.width / this.runtime.devicePixelRatio;
-		var bottomEdge = this.runtime.height / this.runtime.devicePixelRatio;
-		
-		// Is entirely offscreen or invisible: hide
-		if (!this.visible || !this.layer.visible || right <= 0 || bottom <= 0 || left >= rightEdge || top >= bottomEdge)
+		// WebGL renderer: if we have our own texture (via load from URL), delete it now
+		if (this.runtime.glwrap && this.has_own_texture && this.webGL_texture)
 		{
-			if (!this.element_hidden)
-				this.elem.style.display = "none";
-			
-			this.element_hidden = true;
-			return;
+			this.runtime.glwrap.deleteTexture(this.webGL_texture);
+			this.webGL_texture = null;
 		}
-		
-		// Truncate to canvas size
-		if (left < 1)
-			left = 1;
-		if (top < 1)
-			top = 1;
-		if (right >= rightEdge)
-			right = rightEdge - 1;
-		if (bottom >= bottomEdge)
-			bottom = bottomEdge - 1;
-		
-		var curWinWidth = window.innerWidth;
-		var curWinHeight = window.innerHeight;
-			
-		// Avoid redundant updates
-		if (!first && this.lastLeft === left && this.lastTop === top && this.lastRight === right && this.lastBottom === bottom && this.lastWinWidth === curWinWidth && this.lastWinHeight === curWinHeight)
-		{
-			if (this.element_hidden)
-			{
-				this.elem.style.display = "";
-				this.element_hidden = false;
-			}
-			
-			return;
-		}
-			
-		this.lastLeft = left;
-		this.lastTop = top;
-		this.lastRight = right;
-		this.lastBottom = bottom;
-		this.lastWinWidth = curWinWidth;
-		this.lastWinHeight = curWinHeight;
-		
-		if (this.element_hidden)
-		{
-			this.elem.style.display = "";
-			this.element_hidden = false;
-		}
-		
-		var offx = Math.round(left) + this.runtime.canvas.offsetLeft;
-		var offy = Math.round(top) + this.runtime.canvas.offsetTop;
-		this.elem.style.position = "absolute";
-		this.elem.style.left = offx + "px";
-		this.elem.style.top = offy + "px";
-		this.elem.style.width = Math.round(right - left) + "px";
-		this.elem.style.height = Math.round(bottom - top) + "px";
 	};
-	
-	// only called if a layout object
+
 	instanceProto.draw = function(ctx)
 	{
+		ctx.globalAlpha = this.opacity;
+			
+		ctx.save();
+		
+		ctx.fillStyle = this.pattern;
+		
+		var myx = this.x;
+		var myy = this.y;
+		
+		if (this.runtime.pixel_rounding)
+		{
+			myx = Math.round(myx);
+			myy = Math.round(myy);
+		}
+		
+		// Patterns tile from the origin no matter where you draw from.
+		// Translate the canvas to align with the draw position, then offset the draw position as well.
+		var drawX = -(this.hotspotX * this.width);
+		var drawY = -(this.hotspotY * this.height);
+		
+		var offX = drawX % this.texture_img.width;
+		var offY = drawY % this.texture_img.height;
+		if (offX < 0)
+			offX += this.texture_img.width;
+		if (offY < 0)
+			offY += this.texture_img.height;
+			
+		ctx.translate(myx, myy);
+		ctx.rotate(this.angle);
+		ctx.translate(offX, offY);
+		
+		ctx.fillRect(drawX - offX,
+					 drawY - offY,
+					 this.width,
+					 this.height);
+		
+		ctx.restore();
+	};
+	
+	instanceProto.drawGL_earlyZPass = function(glw)
+	{
+		this.drawGL(glw);
 	};
 	
 	instanceProto.drawGL = function(glw)
 	{
+		glw.setTexture(this.webGL_texture);
+		glw.setOpacity(this.opacity);
+		
+		var rcTex = this.rcTex;
+		rcTex.right = this.width / this.texture_img.width;
+		rcTex.bottom = this.height / this.texture_img.height;
+		
+		var q = this.bquad;
+		
+		if (this.runtime.pixel_rounding)
+		{
+			var ox = Math.round(this.x) - this.x;
+			var oy = Math.round(this.y) - this.y;
+			
+			glw.quadTex(q.tlx + ox, q.tly + oy, q.trx + ox, q.try_ + oy, q.brx + ox, q.bry + oy, q.blx + ox, q.bly + oy, rcTex);
+		}
+		else
+			glw.quadTex(q.tlx, q.tly, q.trx, q.try_, q.brx, q.bry, q.blx, q.bly, rcTex);
 	};
-	
 
 	//////////////////////////////////////
 	// Conditions
 	function Cnds() {};
 	
-	Cnds.prototype.OnClicked = function ()
+	Cnds.prototype.OnURLLoaded = function ()
 	{
 		return true;
-	};
-	
-	Cnds.prototype.OnChanged = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.CompareValue = function (cmp, x)
-	{
-		return cr.do_cmp(parseFloat(this.elem["value"]), cmp, x);
 	};
 	
 	pluginProto.cnds = new Cnds();
@@ -31937,44 +30394,48 @@ cr.plugins_.sliderbar = function(runtime)
 	// Actions
 	function Acts() {};
 
-	Acts.prototype.SetTooltip = function (text)
+	Acts.prototype.SetEffect = function (effect)
 	{
-		this.elem.title = text;
+		this.blend_mode = effect;
+		this.compositeOp = cr.effectToCompositeOp(effect);
+		cr.setGLBlend(this, effect, this.runtime.gl);
+		this.runtime.redraw = true;
 	};
 	
-	Acts.prototype.SetVisible = function (vis)
+	Acts.prototype.LoadURL = function (url_, crossOrigin_)
 	{
-		this.visible = (vis !== 0);
-	};
-	
-	Acts.prototype.SetCSSStyle = function (p, v)
-	{
-		this.elem.style[cr.cssToCamelCase(p)] = v;
-	};
-	
-	Acts.prototype.SetValue = function (x)
-	{
-		this.elem["value"] = x;
-	};
-	
-	Acts.prototype.SetMaximum = function (x)
-	{
-		this.elem["max"] = x;
-	};
-	
-	Acts.prototype.SetMinimum = function (x)
-	{
-		this.elem["min"] = x;
-	};
-	
-	Acts.prototype.SetStep = function (x)
-	{
-		this.elem["step"] = x;
-	};
-	
-	Acts.prototype.SetEnabled = function (en)
-	{
-		this.elem.disabled = (en === 0);
+		var img = new Image();
+		var self = this;
+		
+		img.onload = function ()
+		{
+			self.texture_img = img;
+			
+			// WebGL renderer
+			if (self.runtime.glwrap)
+			{
+				// Delete any previous own texture
+				if (self.has_own_texture && self.webGL_texture)
+					self.runtime.glwrap.deleteTexture(self.webGL_texture);
+					
+				self.webGL_texture = self.runtime.glwrap.loadTexture(img, true, self.runtime.linearSampling);
+			}
+			// Canvas2D renderer
+			else
+			{
+				self.pattern = self.runtime.ctx.createPattern(img, "repeat");
+			}
+			
+			self.has_own_texture = true;
+			self.runtime.redraw = true;
+			self.runtime.trigger(cr.plugins_.TiledBg.prototype.cnds.OnURLLoaded, self);
+		};
+		
+		if (url_.substr(0, 5) !== "data:" && crossOrigin_ === 0)
+			img.crossOrigin = "anonymous";
+		
+		// use runtime function to work around WKWebView permissions
+		this.runtime.setImageSrc(img, url_);
 	};
 	
 	pluginProto.acts = new Acts();
@@ -31983,480 +30444,832 @@ cr.plugins_.sliderbar = function(runtime)
 	// Expressions
 	function Exps() {};
 	
-	Exps.prototype.Value = function (ret)
+	Exps.prototype.ImageWidth = function (ret)
 	{
-		ret.set_float(parseFloat(this.elem["value"]) || 0);
+		ret.set_float(this.texture_img.width);
 	};
 	
-	Exps.prototype.Maximum = function (ret)
+	Exps.prototype.ImageHeight = function (ret)
 	{
-		ret.set_float(parseFloat(this.elem["max"]) || 0);
-	};
-	
-	Exps.prototype.Minimum = function (ret)
-	{
-		ret.set_float(parseFloat(this.elem["min"]) || 0);
-	};
-	
-	Exps.prototype.Step = function (ret)
-	{
-		ret.set_float(parseFloat(this.elem["step"]) || 0);
+		ret.set_float(this.texture_img.height);
 	};
 	
 	pluginProto.exps = new Exps();
 
 }());
 
-// Drag & Drop
+// Touch
 // ECMAScript 5 strict mode
 
 ;
 ;
 
 /////////////////////////////////////
-// Behavior class
-cr.behaviors.DragnDrop = function(runtime)
+// Plugin class
+cr.plugins_.Touch = function(runtime)
 {
 	this.runtime = runtime;
-	var self = this;
-	
-	document.addEventListener("mousemove", function(info) {
-		self.onMouseMove(info);
-	});
-		
-	document.addEventListener("mousedown", function(info) {
-		self.onMouseDown(info);
-	});
-	
-	document.addEventListener("mouseup", function(info) {
-		self.onMouseUp(info);
-	});
-	
-	// Use document touch input for fullscreen mode
-	var elem = (this.runtime.fullscreen_mode > 0) ? document : this.runtime.canvas;
-	
-	if (typeof PointerEvent !== "undefined")
-	{
-		elem.addEventListener("pointerdown",
-			function(info) {
-				self.onPointerStart(info);
-			},
-			false
-		);
-		
-		elem.addEventListener("pointermove",
-			function(info) {
-				self.onPointerMove(info);
-			},
-			false
-		);
-		
-		elem.addEventListener("pointerup",
-			function(info) {
-				self.onPointerEnd(info);
-			},
-			false
-		);
-		
-		// Treat pointer cancellation the same as a touch end
-		elem.addEventListener("pointercancel",
-			function(info) {
-				self.onPointerEnd(info);
-			},
-			false
-		);
-	}
-	else if (window.navigator["msPointerEnabled"])
-	{
-		elem.addEventListener("MSPointerDown",
-			function(info) {
-				self.onPointerStart(info);
-			},
-			false
-		);
-		
-		elem.addEventListener("MSPointerMove",
-			function(info) {
-				self.onPointerMove(info);
-			},
-			false
-		);
-		
-		elem.addEventListener("MSPointerUp",
-			function(info) {
-				self.onPointerEnd(info);
-			},
-			false
-		);
-		
-		// Treat pointer cancellation the same as a touch end
-		elem.addEventListener("MSPointerCancel",
-			function(info) {
-				self.onPointerEnd(info);
-			},
-			false
-		);
-	}
-	else
-	{
-		elem.addEventListener("touchstart",
-			function(info) {
-				self.onTouchStart(info);
-			},
-			false
-		);
-		
-		elem.addEventListener("touchmove",
-			function(info) {
-				self.onTouchMove(info);
-			},
-			false
-		);
-		
-		elem.addEventListener("touchend",
-			function(info) {
-				self.onTouchEnd(info);
-			},
-			false
-		);
-		
-		elem.addEventListener("touchcancel",
-			function(info) {
-				self.onTouchEnd(info);
-			},
-			false
-		);
-	}
 };
 
 (function ()
 {
-	var behaviorProto = cr.behaviors.DragnDrop.prototype;
-	
-	var dummyoffset = {left: 0, top: 0};
-	
-	function GetDragDropBehavior(inst)
-	{
-		var i, len;
-		for (i = 0, len = inst.behavior_insts.length; i < len; i++)
-		{
-			if (inst.behavior_insts[i] instanceof behaviorProto.Instance)
-				return inst.behavior_insts[i];
-		}
-		
-		return null;
-	};
-	
-	behaviorProto.onMouseDown = function (info)
-	{
-		if (info.which !== 1)
-			return;		// not left mouse button
-			
-		this.onInputDown("leftmouse", info.pageX, info.pageY);
-	};
-	
-	behaviorProto.onMouseMove = function (info)
-	{
-		if (info.which !== 1)
-			return;		// not left mouse button
-			
-		this.onInputMove("leftmouse", info.pageX, info.pageY);
-	};
-	
-	behaviorProto.onMouseUp = function (info)
-	{
-		if (info.which !== 1)
-			return;		// not left mouse button
-			
-		this.onInputUp("leftmouse");
-	};
-	
-	behaviorProto.onTouchStart = function (info)
-	{
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-		
-		var i, len, t, id;
-		for (i = 0, len = info.changedTouches.length; i < len; i++)
-		{
-			t = info.changedTouches[i];
-			
-			id = t.identifier;
-			this.onInputDown(id ? id.toString() : "<none>", t.pageX, t.pageY);
-		}
-	};
-	
-	behaviorProto.onTouchMove = function (info)
-	{
-		if (info.preventDefault)
-			info.preventDefault();
-		
-		var i, len, t, id;
-		for (i = 0, len = info.changedTouches.length; i < len; i++)
-		{
-			t = info.changedTouches[i];
-			id = t.identifier;
-			this.onInputMove(id ? id.toString() : "<none>", t.pageX, t.pageY);
-		}
-	};
-	
-	behaviorProto.onTouchEnd = function (info)
-	{
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-		
-		var i, len, t, id;
-		for (i = 0, len = info.changedTouches.length; i < len; i++)
-		{
-			t = info.changedTouches[i];
-			id = t.identifier;
-			this.onInputUp(id ? id.toString() : "<none>");
-		}
-	};
-	
-	behaviorProto.onPointerStart = function (info)
-	{
-		// Ignore mouse events
-		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
-			return;
-			
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-		
-		this.onInputDown(info["pointerId"].toString(), info.pageX, info.pageY);
-	};
-	
-	behaviorProto.onPointerMove = function (info)
-	{
-		// Ignore mouse events
-		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
-			return;
-			
-		if (info.preventDefault)
-			info.preventDefault();
-		
-		this.onInputMove(info["pointerId"].toString(), info.pageX, info.pageY);
-	};
-	
-	behaviorProto.onPointerEnd = function (info)
-	{
-		// Ignore mouse events
-		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
-			return;
-			
-		if (info.preventDefault && cr.isCanvasInputEvent(info))
-			info.preventDefault();
-		
-		this.onInputUp(info["pointerId"].toString());
-	};
-	
-	behaviorProto.onInputDown = function (src, pageX, pageY)
-	{
-		var offsetLeft = this.runtime.canvas.offsetLeft;
-		var offsetTop = this.runtime.canvas.offsetTop;
-		var x = pageX - offsetLeft;
-		var y = pageY - offsetTop;
-		var lx, ly, topx, topy;
-		
-		var arr = this.my_instances.valuesRef();
-		
-		var i, len, b, inst, topmost = null;
-		for (i = 0, len = arr.length; i < len; i++)
-		{
-			inst = arr[i];
-			b = GetDragDropBehavior(inst);
-			
-			if (!b.enabled || b.dragging)
-				continue;		// don't consider disabled or already-dragging instances
-				
-			lx = inst.layer.canvasToLayer(x, y, true);
-			ly = inst.layer.canvasToLayer(x, y, false);
-			inst.update_bbox();
-			if (!inst.contains_pt(lx, ly))
-				continue;		// don't consider instances not over this point
-				
-			// First instance found
-			if (!topmost)
-			{
-				topmost = inst;
-				topx = lx;
-				topy = ly;
-				continue;
-			}
-			
-			// Otherwise prefer the topmost instance of all overlapping the point
-			if (inst.layer.index > topmost.layer.index)
-			{
-				topmost = inst;
-				topx = lx;
-				topy = ly;
-				continue;
-			}
-			
-			if (inst.layer.index === topmost.layer.index && inst.get_zindex() > topmost.get_zindex())
-			{
-				topmost = inst;
-				topx = lx;
-				topy = ly;
-				continue;
-			}
-		}
-		
-		if (topmost)
-			GetDragDropBehavior(topmost).onDown(src, topx, topy);
-	};
-	
-	behaviorProto.onInputMove = function (src, pageX, pageY)
-	{
-		var offsetLeft = this.runtime.canvas.offsetLeft;
-		var offsetTop = this.runtime.canvas.offsetTop;
-		var x = pageX - offsetLeft;
-		var y = pageY - offsetTop;
-		var lx, ly;
-		
-		var arr = this.my_instances.valuesRef();
-		
-		var i, len, b, inst;
-		for (i = 0, len = arr.length; i < len; i++)
-		{
-			inst = arr[i];
-			b = GetDragDropBehavior(inst);
-			
-			if (!b.enabled || !b.dragging || (b.dragging && b.dragsource !== src))
-				continue;		// don't consider disabled, not-dragging, or dragging by other sources
-				
-			lx = inst.layer.canvasToLayer(x, y, true);
-			ly = inst.layer.canvasToLayer(x, y, false);
-			b.onMove(lx, ly);
-		}
-	};
-	
-	behaviorProto.onInputUp = function (src)
-	{
-		var arr = this.my_instances.valuesRef();
-		
-		var i, len, b, inst;
-		for (i = 0, len = arr.length; i < len; i++)
-		{
-			inst = arr[i];
-			b = GetDragDropBehavior(inst);
-			
-			if (b.dragging && b.dragsource === src)
-				b.onUp();
-		}
-	};
+	var pluginProto = cr.plugins_.Touch.prototype;
 		
 	/////////////////////////////////////
-	// Behavior type class
-	behaviorProto.Type = function(behavior, objtype)
+	// Object type class
+	pluginProto.Type = function(plugin)
 	{
-		this.behavior = behavior;
-		this.objtype = objtype;
-		this.runtime = behavior.runtime;
+		this.plugin = plugin;
+		this.runtime = plugin.runtime;
 	};
-	
-	var behtypeProto = behaviorProto.Type.prototype;
 
-	behtypeProto.onCreate = function()
+	var typeProto = pluginProto.Type.prototype;
+
+	typeProto.onCreate = function()
 	{
 	};
 
 	/////////////////////////////////////
-	// Behavior instance class
-	behaviorProto.Instance = function(type, inst)
+	// Instance class
+	pluginProto.Instance = function(type)
 	{
 		this.type = type;
-		this.behavior = type.behavior;
-		this.inst = inst;				// associated object instance to modify
 		this.runtime = type.runtime;
+		this.touches = [];
+		this.mouseDown = false;
 	};
 	
-	var behinstProto = behaviorProto.Instance.prototype;
+	var instanceProto = pluginProto.Instance.prototype;
+	
+	var dummyoffset = {left: 0, top: 0};
 
-	behinstProto.onCreate = function()
+	instanceProto.findTouch = function (id)
 	{
-		this.dragging = false;
-		this.dx = 0;
-		this.dy = 0;
-		this.dragsource = "<none>";
-		
-		// 0 = both, 1 = horizontal, 2 = vertical
-		this.axes = this.properties[0];
-		this.enabled = this.properties[1];
-	};
-	
-	behinstProto.saveToJSON = function ()
-	{
-		return { "enabled": this.enabled };
-	};
-	
-	behinstProto.loadFromJSON = function (o)
-	{
-		this.enabled = o["enabled"];
-		this.dragging = false;
-	};
-	
-	behinstProto.onDown = function(src, x, y)
-	{
-		this.dx = x - this.inst.x;
-		this.dy = y - this.inst.y;
-		this.dragging = true;
-		this.dragsource = src;
-		
-		// Trigger 'On drag start'
-		this.runtime.isInUserInputEvent = true;
-		this.runtime.trigger(cr.behaviors.DragnDrop.prototype.cnds.OnDragStart, this.inst);
-		this.runtime.isInUserInputEvent = false;
-	};
-	
-	behinstProto.onMove = function(x, y)
-	{
-		var newx = x - this.dx;
-		var newy = y - this.dy;
-		
-		if (this.axes === 0)		// both
+		var i, len;
+		for (i = 0, len = this.touches.length; i < len; i++)
 		{
-			if (this.inst.x !== newx || this.inst.y !== newy)
-			{
-				this.inst.x = newx;
-				this.inst.y = newy;
-				this.inst.set_bbox_changed();
-			}
+			if (this.touches[i]["id"] === id)
+				return i;
 		}
-		else if (this.axes === 1)	// horizontal
+		
+		return -1;
+	};
+	
+	var pg_accx = 0;
+	var pg_accy = 0;
+	var pg_accz = 0;
+	
+	function PhoneGapGetAcceleration(evt)
+	{
+		pg_accx = evt.x;
+		pg_accy = evt.y;
+		pg_accz = evt.z;
+	};
+	
+	var theInstance = null;
+	
+	var touchinfo_cache = [];
+	
+	function AllocTouchInfo(x, y, id, index)
+	{
+		var ret;
+		
+		if (touchinfo_cache.length)
+			ret = touchinfo_cache.pop();
+		else
+			ret = new TouchInfo();
+		
+		ret.init(x, y, id, index);
+		return ret;
+	};
+	
+	function ReleaseTouchInfo(ti)
+	{
+		if (touchinfo_cache.length < 100)
+			touchinfo_cache.push(ti);
+	};
+	
+	var GESTURE_HOLD_THRESHOLD = 15;		// max px motion for hold gesture to register
+	var GESTURE_HOLD_TIMEOUT = 500;			// time for hold gesture to register
+	var GESTURE_TAP_TIMEOUT = 333;			// time for tap gesture to register
+	var GESTURE_DOUBLETAP_THRESHOLD = 25;	// max distance apart for taps to be
+	
+	function TouchInfo()
+	{
+		this.starttime = 0;
+		this.time = 0;
+		this.lasttime = 0;
+		
+		this.startx = 0;
+		this.starty = 0;
+		this.x = 0;
+		this.y = 0;
+		this.lastx = 0;
+		this.lasty = 0;
+		
+		this["id"] = 0;
+		this.startindex = 0;
+		
+		this.triggeredHold = false;
+		this.tooFarForHold = false;
+	};
+	
+	TouchInfo.prototype.init = function (x, y, id, index)
+	{
+		var nowtime = cr.performance_now();
+		this.time = nowtime;
+		this.lasttime = nowtime;
+		this.starttime = nowtime;
+		
+		this.startx = x;
+		this.starty = y;
+		this.x = x;
+		this.y = y;
+		this.lastx = x;
+		this.lasty = y;
+		this.width = 0;
+		this.height = 0;
+		this.pressure = 0;
+		
+		this["id"] = id;
+		this.startindex = index;
+		
+		this.triggeredHold = false;
+		this.tooFarForHold = false;
+	};
+	
+	TouchInfo.prototype.update = function (nowtime, x, y, width, height, pressure)
+	{
+		this.lasttime = this.time;
+		this.time = nowtime;
+		
+		this.lastx = this.x;
+		this.lasty = this.y;
+		this.x = x;
+		this.y = y;
+		this.width = width;
+		this.height = height;
+		this.pressure = pressure;
+		
+		if (!this.tooFarForHold && cr.distanceTo(this.startx, this.starty, this.x, this.y) >= GESTURE_HOLD_THRESHOLD)
 		{
-			if (this.inst.x !== newx)
-			{
-				this.inst.x = newx;
-				this.inst.set_bbox_changed();
-			}
-		}
-		else if (this.axes === 2)	// vertical
-		{
-			if (this.inst.y !== newy)
-			{
-				this.inst.y = newy;
-				this.inst.set_bbox_changed();
-			}
+			this.tooFarForHold = true;
 		}
 	};
 	
-	behinstProto.onUp = function()
+	TouchInfo.prototype.maybeTriggerHold = function (inst, index)
 	{
-		this.dragging = false;
+		if (this.triggeredHold)
+			return;		// already triggered this gesture
+		
+		var nowtime = cr.performance_now();
+		
+		// Is within 10px after 500ms
+		if (nowtime - this.starttime >= GESTURE_HOLD_TIMEOUT && !this.tooFarForHold && cr.distanceTo(this.startx, this.starty, this.x, this.y) < GESTURE_HOLD_THRESHOLD)
+		{
+			this.triggeredHold = true;
 			
-		// Trigger 'On drop'
+			inst.trigger_index = this.startindex;
+			inst.trigger_id = this["id"];
+			inst.getTouchIndex = index;
+			inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnHoldGesture, inst);
+			
+			inst.curTouchX = this.x;
+			inst.curTouchY = this.y;
+			inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnHoldGestureObject, inst);
+			
+			inst.getTouchIndex = 0;
+		}
+	};
+	
+	var lastTapX = -1000;
+	var lastTapY = -1000;
+	var lastTapTime = -10000;
+	
+	TouchInfo.prototype.maybeTriggerTap = function (inst, index)
+	{
+		if (this.triggeredHold)
+			return;
+		
+		var nowtime = cr.performance_now();
+		
+		// Must also come within the hold threshold
+		if (nowtime - this.starttime <= GESTURE_TAP_TIMEOUT && !this.tooFarForHold && cr.distanceTo(this.startx, this.starty, this.x, this.y) < GESTURE_HOLD_THRESHOLD)
+		{
+			inst.trigger_index = this.startindex;
+			inst.trigger_id = this["id"];
+			inst.getTouchIndex = index;
+			
+			// Is within the distance and time of last tap: trigger a double tap
+			if ((nowtime - lastTapTime <= GESTURE_TAP_TIMEOUT * 2) && cr.distanceTo(lastTapX, lastTapY, this.x, this.y) < GESTURE_DOUBLETAP_THRESHOLD)
+			{
+				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnDoubleTapGesture, inst);
+				
+				inst.curTouchX = this.x;
+				inst.curTouchY = this.y;
+				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnDoubleTapGestureObject, inst);
+				
+				lastTapX = -1000;
+				lastTapY = -1000;
+				lastTapTime = -10000;
+			}
+			// Otherwise trigger single tap
+			else
+			{
+				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTapGesture, inst);
+				
+				inst.curTouchX = this.x;
+				inst.curTouchY = this.y;
+				inst.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTapGestureObject, inst);
+				
+				lastTapX = this.x;
+				lastTapY = this.y;
+				lastTapTime = nowtime;
+			}
+			
+			inst.getTouchIndex = 0;
+		}
+	};
+
+	instanceProto.onCreate = function()
+	{
+		theInstance = this;
+		this.isWindows8 = !!(typeof window["c2isWindows8"] !== "undefined" && window["c2isWindows8"]);
+		
+		this.orient_alpha = 0;
+		this.orient_beta = 0;
+		this.orient_gamma = 0;
+		
+		this.acc_g_x = 0;
+		this.acc_g_y = 0;
+		this.acc_g_z = 0;
+		this.acc_x = 0;
+		this.acc_y = 0;
+		this.acc_z = 0;
+		
+		this.curTouchX = 0;
+		this.curTouchY = 0;
+		
+		this.trigger_index = 0;
+		this.trigger_id = 0;
+		
+		// For returning correct position for TouchX and TouchY expressions in a trigger
+		this.getTouchIndex = 0;
+		
+		this.useMouseInput = this.properties[0];
+		
+		// Use document touch input for PhoneGap or fullscreen mode
+		var elem = (this.runtime.fullscreen_mode > 0) ? document : this.runtime.canvas;
+		
+		// Use elem2 to attach the up and cancel events to document, since we want to know about
+		// these even if they happen off the main canvas.
+		var elem2 = document;
+		
+		var self = this;
+		
+		if (typeof PointerEvent !== "undefined")
+		{
+			elem.addEventListener("pointerdown",
+				function(info) {
+					self.onPointerStart(info);
+				},
+				false
+			);
+			
+			elem.addEventListener("pointermove",
+				function(info) {
+					self.onPointerMove(info);
+				},
+				false
+			);
+			
+			// Always attach up/cancel events to document (note elem2),
+			// otherwise touches dragged off the canvas could get lost
+			elem2.addEventListener("pointerup",
+				function(info) {
+					self.onPointerEnd(info, false);
+				},
+				false
+			);
+			
+			// Treat pointer cancellation the same as a touch end
+			elem2.addEventListener("pointercancel",
+				function(info) {
+					self.onPointerEnd(info, true);
+				},
+				false
+			);
+			
+			if (this.runtime.canvas)
+			{
+				this.runtime.canvas.addEventListener("MSGestureHold", function(e) {
+					e.preventDefault();
+				}, false);
+				document.addEventListener("MSGestureHold", function(e) {
+					e.preventDefault();
+				}, false);
+				this.runtime.canvas.addEventListener("gesturehold", function(e) {
+					e.preventDefault();
+				}, false);
+				document.addEventListener("gesturehold", function(e) {
+					e.preventDefault();
+				}, false);
+			}
+		}
+		// IE10-style MS prefixed pointer events
+		else if (window.navigator["msPointerEnabled"])
+		{
+			elem.addEventListener("MSPointerDown",
+				function(info) {
+					self.onPointerStart(info);
+				},
+				false
+			);
+			
+			elem.addEventListener("MSPointerMove",
+				function(info) {
+					self.onPointerMove(info);
+				},
+				false
+			);
+			
+			// Always attach up/cancel events to document (note elem2),
+			// otherwise touches dragged off the canvas could get lost
+			elem2.addEventListener("MSPointerUp",
+				function(info) {
+					self.onPointerEnd(info, false);
+				},
+				false
+			);
+			
+			// Treat pointer cancellation the same as a touch end
+			elem2.addEventListener("MSPointerCancel",
+				function(info) {
+					self.onPointerEnd(info, true);
+				},
+				false
+			);
+			
+			if (this.runtime.canvas)
+			{
+				this.runtime.canvas.addEventListener("MSGestureHold", function(e) {
+					e.preventDefault();
+				}, false);
+				document.addEventListener("MSGestureHold", function(e) {
+					e.preventDefault();
+				}, false);
+			}
+		}
+		// otherwise old style touch events
+		else
+		{
+			elem.addEventListener("touchstart",
+				function(info) {
+					self.onTouchStart(info);
+				},
+				false
+			);
+			
+			elem.addEventListener("touchmove",
+				function(info) {
+					self.onTouchMove(info);
+				},
+				false
+			);
+			
+			// Always attach up/cancel events to document (note elem2),
+			// otherwise touches dragged off the canvas could get lost
+			elem2.addEventListener("touchend",
+				function(info) {
+					self.onTouchEnd(info, false);
+				},
+				false
+			);
+			
+			// Treat touch cancellation the same as a touch end
+			elem2.addEventListener("touchcancel",
+				function(info) {
+					self.onTouchEnd(info, true);
+				},
+				false
+			);
+		}
+		
+		if (this.isWindows8)
+		{
+			var win8accelerometerFn = function(e) {
+					var reading = e["reading"];
+					self.acc_x = reading["accelerationX"];
+					self.acc_y = reading["accelerationY"];
+					self.acc_z = reading["accelerationZ"];
+				};
+				
+			var win8inclinometerFn = function(e) {
+					var reading = e["reading"];
+					self.orient_alpha = reading["yawDegrees"];
+					self.orient_beta = reading["pitchDegrees"];
+					self.orient_gamma = reading["rollDegrees"];
+				};
+				
+			var accelerometer = Windows["Devices"]["Sensors"]["Accelerometer"]["getDefault"]();
+			
+            if (accelerometer)
+			{
+                accelerometer["reportInterval"] = Math.max(accelerometer["minimumReportInterval"], 16);
+				accelerometer.addEventListener("readingchanged", win8accelerometerFn);
+            }
+			
+			var inclinometer = Windows["Devices"]["Sensors"]["Inclinometer"]["getDefault"]();
+			
+			if (inclinometer)
+			{
+				inclinometer["reportInterval"] = Math.max(inclinometer["minimumReportInterval"], 16);
+				inclinometer.addEventListener("readingchanged", win8inclinometerFn);
+			}
+			
+			document.addEventListener("visibilitychange", function(e) {
+				if (document["hidden"] || document["msHidden"])
+				{
+					if (accelerometer)
+						accelerometer.removeEventListener("readingchanged", win8accelerometerFn);
+					if (inclinometer)
+						inclinometer.removeEventListener("readingchanged", win8inclinometerFn);
+				}
+				else
+				{
+					if (accelerometer)
+						accelerometer.addEventListener("readingchanged", win8accelerometerFn);
+					if (inclinometer)
+						inclinometer.addEventListener("readingchanged", win8inclinometerFn);
+				}
+			}, false);
+		}
+		else
+		{
+			
+			window.addEventListener("deviceorientation", function (eventData) {
+			
+				self.orient_alpha = eventData["alpha"] || 0;
+				self.orient_beta = eventData["beta"] || 0;
+				self.orient_gamma = eventData["gamma"] || 0;
+			
+			}, false);
+			
+			window.addEventListener("devicemotion", function (eventData) {
+			
+				if (eventData["accelerationIncludingGravity"])
+				{
+					self.acc_g_x = eventData["accelerationIncludingGravity"]["x"] || 0;
+					self.acc_g_y = eventData["accelerationIncludingGravity"]["y"] || 0;
+					self.acc_g_z = eventData["accelerationIncludingGravity"]["z"] || 0;
+				}
+				
+				if (eventData["acceleration"])
+				{
+					self.acc_x = eventData["acceleration"]["x"] || 0;
+					self.acc_y = eventData["acceleration"]["y"] || 0;
+					self.acc_z = eventData["acceleration"]["z"] || 0;
+				}
+				
+			}, false);
+		}
+		
+		if (this.useMouseInput)
+		{
+			document.addEventListener("mousemove", function(info) {
+				self.onMouseMove(info);
+			});
+			
+			document.addEventListener("mousedown", function(info) {
+				self.onMouseDown(info);
+			});
+			
+			document.addEventListener("mouseup", function(info) {
+				self.onMouseUp(info);
+			});
+		}
+		
+		// Use PhoneGap in case browser does not support accelerometer but device does
+		if (!this.runtime.isiOS && this.runtime.isCordova && navigator["accelerometer"] && navigator["accelerometer"]["watchAcceleration"])
+		{
+			navigator["accelerometer"]["watchAcceleration"](PhoneGapGetAcceleration, null, { "frequency": 40 });
+		}
+		
+		this.runtime.tick2Me(this);
+	};
+	
+	instanceProto.onPointerMove = function (info)
+	{
+		// Ignore mouse events (note check for both IE10 and IE11 style pointerType values)
+		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
+			return;
+		
+		if (info.preventDefault)
+			info.preventDefault();
+		
+		var i = this.findTouch(info["pointerId"]);
+		var nowtime = cr.performance_now();
+		
+		if (i >= 0)
+		{
+			var offsetLeft = this.runtime.canvas.offsetLeft;
+			var offsetTop = this.runtime.canvas.offsetTop;
+			var t = this.touches[i];
+			
+			// Ignore events <2ms after the last event - seems events sometimes double-fire
+			// very close which throws off speed measurements
+			if (nowtime - t.time < 2)
+				return;
+			
+			t.update(nowtime, info.pageX - offsetLeft, info.pageY - offsetTop, info.width || 0, info.height || 0, info.pressure || 0);
+		}
+	};
+
+	instanceProto.onPointerStart = function (info)
+	{
+		// Ignore mouse events (note check for both IE10 and IE11 style pointerType values)
+		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
+			return;
+		
+		// Ignore if already got a pointer with this ID. (This is mainly to deal with buggy implementations
+		// that fire the same pointer IDs down twice, e.g. Firefox desktop.)
+		var i = this.findTouch(info["pointerId"]);
+		if (i !== -1)
+			return;
+			
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+		
+		var offsetLeft = this.runtime.canvas.offsetLeft;
+		var offsetTop = this.runtime.canvas.offsetTop;
+		var touchx = info.pageX - offsetLeft;
+		var touchy = info.pageY - offsetTop;
+		var nowtime = cr.performance_now();
+		
+		this.trigger_index = this.touches.length;
+		this.trigger_id = info["pointerId"];
+		
+		this.touches.push(AllocTouchInfo(touchx, touchy, info["pointerId"], this.trigger_index));
+		
 		this.runtime.isInUserInputEvent = true;
-		this.runtime.trigger(cr.behaviors.DragnDrop.prototype.cnds.OnDrop, this.inst);
+		
+		// Trigger OnNthTouchStart then OnTouchStart
+		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchStart, this);
+		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchStart, this);
+		
+		// Trigger OnTouchObject for each touch started event		
+		this.curTouchX = touchx;
+		this.curTouchY = touchy;
+		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchObject, this);
+		
 		this.runtime.isInUserInputEvent = false;
 	};
 
-	behinstProto.tick = function ()
+	instanceProto.onPointerEnd = function (info, isCancel)
 	{
-		//var dt = this.runtime.getDt(this.inst);
+		// Ignore mouse events (note check for both IE10 and IE11 style pointerType values)
+		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
+			return;
+			
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+			
+		var i = this.findTouch(info["pointerId"]);
+		this.trigger_index = (i >= 0 ? this.touches[i].startindex : -1);
+		this.trigger_id = (i >= 0 ? this.touches[i]["id"] : -1);
 		
-		// called every tick for you to update this.inst as necessary
-		// dt is the amount of time passed since the last tick, in case it's a movement
+		this.runtime.isInUserInputEvent = true;
+		
+		// Trigger OnNthTouchEnd & OnTouchEnd
+		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchEnd, this);
+		this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchEnd, this);
+		
+		// Remove touch
+		if (i >= 0)
+		{
+			if (!isCancel)
+				this.touches[i].maybeTriggerTap(this, i);
+			
+			ReleaseTouchInfo(this.touches[i]);
+			this.touches.splice(i, 1);
+		}
+		
+		this.runtime.isInUserInputEvent = false;
+	};
+
+	instanceProto.onTouchMove = function (info)
+	{
+		if (info.preventDefault)
+			info.preventDefault();
+		
+		var nowtime = cr.performance_now();
+		
+		var i, len, t, u;
+		for (i = 0, len = info.changedTouches.length; i < len; i++)
+		{
+			t = info.changedTouches[i];
+			
+			var j = this.findTouch(t["identifier"]);
+			
+			if (j >= 0)
+			{
+				var offsetLeft = this.runtime.canvas.offsetLeft;
+				var offsetTop = this.runtime.canvas.offsetTop;
+				u = this.touches[j];
+				
+				// Ignore events <2ms after the last event - seems events sometimes double-fire
+				// very close which throws off speed measurements
+				if (nowtime - u.time < 2)
+					continue;
+				
+				var touchWidth = (t.radiusX || t.webkitRadiusX || t.mozRadiusX || t.msRadiusX || 0) * 2;
+				var touchHeight = (t.radiusY || t.webkitRadiusY || t.mozRadiusY || t.msRadiusY || 0) * 2;
+				var touchForce = t.force || t.webkitForce || t.mozForce || t.msForce || 0;
+				u.update(nowtime, t.pageX - offsetLeft, t.pageY - offsetTop, touchWidth, touchHeight, touchForce);
+			}
+		}
+	};
+
+	instanceProto.onTouchStart = function (info)
+	{
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+			
+		var offsetLeft = this.runtime.canvas.offsetLeft;
+		var offsetTop = this.runtime.canvas.offsetTop;
+		var nowtime = cr.performance_now();
+		
+		this.runtime.isInUserInputEvent = true;
+		
+		var i, len, t, j;
+		for (i = 0, len = info.changedTouches.length; i < len; i++)
+		{
+			t = info.changedTouches[i];
+			
+			// WORKAROUND Chrome for Android bug: touchstart sometimes fires twice with same id.
+			// If there is already a touch with this id, ignore this event.
+			j = this.findTouch(t["identifier"]);
+			
+			if (j !== -1)
+				continue;
+			// END WORKAROUND
+			
+			var touchx = t.pageX - offsetLeft;
+			var touchy = t.pageY - offsetTop;
+			
+			this.trigger_index = this.touches.length;
+			this.trigger_id = t["identifier"];
+			
+			this.touches.push(AllocTouchInfo(touchx, touchy, t["identifier"], this.trigger_index));
+			
+			// Trigger OnNthTouchStart then OnTouchStart
+			this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchStart, this);
+			this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchStart, this);
+			
+			// Trigger OnTouchObject for each touch started event		
+			this.curTouchX = touchx;
+			this.curTouchY = touchy;
+			this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchObject, this);
+		}
+		
+		this.runtime.isInUserInputEvent = false;
+	};
+
+	instanceProto.onTouchEnd = function (info, isCancel)
+	{
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+			
+		this.runtime.isInUserInputEvent = true;
+		
+		var i, len, t, j;
+		for (i = 0, len = info.changedTouches.length; i < len; i++)
+		{
+			t = info.changedTouches[i];
+			j = this.findTouch(t["identifier"]);
+			
+			// Remove touch
+			if (j >= 0)
+			{
+				// Trigger OnNthTouchEnd & OnTouchEnd
+				// NOTE: Android stock browser is total garbage and fires touchend twice
+				// when a single touch ends. So we only fire these events when we found the
+				// touch identifier exists.
+				this.trigger_index = this.touches[j].startindex;
+				this.trigger_id = this.touches[j]["id"];
+			
+				this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnNthTouchEnd, this);
+				this.runtime.trigger(cr.plugins_.Touch.prototype.cnds.OnTouchEnd, this);
+			
+				if (!isCancel)
+					this.touches[j].maybeTriggerTap(this, j);
+				
+				ReleaseTouchInfo(this.touches[j]);
+				this.touches.splice(j, 1);
+			}
+		}
+		
+		this.runtime.isInUserInputEvent = false;
+	};
+	
+	instanceProto.getAlpha = function ()
+	{
+		if (this.runtime.isCordova && this.orient_alpha === 0 && pg_accz !== 0)
+			return pg_accz * 90;
+		else
+			return this.orient_alpha;
+	};
+	
+	instanceProto.getBeta = function ()
+	{
+		if (this.runtime.isCordova && this.orient_beta === 0 && pg_accy !== 0)
+			return pg_accy * 90;
+		else
+			return this.orient_beta;
+	};
+	
+	instanceProto.getGamma = function ()
+	{
+		if (this.runtime.isCordova && this.orient_gamma === 0 && pg_accx !== 0)
+			return pg_accx * 90;
+		else
+			return this.orient_gamma;
+	};
+	
+	var noop_func = function(){};
+	
+	function isCompatibilityMouseEvent(e)
+	{
+		return (e["sourceCapabilities"] && e["sourceCapabilities"]["firesTouchEvents"]) ||
+				(e.originalEvent && e.originalEvent["sourceCapabilities"] && e.originalEvent["sourceCapabilities"]["firesTouchEvents"]);
+	};
+
+	instanceProto.onMouseDown = function(info)
+	{
+		// Ignore compatibility mouse events fired after touches, since this can cause double-firing triggers in iframes.
+		if (isCompatibilityMouseEvent(info))
+			return;
+		
+		// Send a fake touch start event
+		var t = { pageX: info.pageX, pageY: info.pageY, "identifier": 0 };
+		var fakeinfo = { changedTouches: [t] };
+		this.onTouchStart(fakeinfo);
+		this.mouseDown = true;
+	};
+	
+	instanceProto.onMouseMove = function(info)
+	{
+		if (!this.mouseDown)
+			return;
+		
+		if (isCompatibilityMouseEvent(info))
+			return;
+			
+		// Send a fake touch move event
+		var t = { pageX: info.pageX, pageY: info.pageY, "identifier": 0 };
+		var fakeinfo = { changedTouches: [t] };
+		this.onTouchMove(fakeinfo);
+	};
+
+	instanceProto.onMouseUp = function(info)
+	{
+		if (info.preventDefault && this.runtime.had_a_click && !this.runtime.isMobile)
+			info.preventDefault();
+			
+		this.runtime.had_a_click = true;
+		
+		if (isCompatibilityMouseEvent(info))
+			return;
+		
+		// Send a fake touch end event
+		var t = { pageX: info.pageX, pageY: info.pageY, "identifier": 0 };
+		var fakeinfo = { changedTouches: [t] };
+		this.onTouchEnd(fakeinfo);
+		this.mouseDown = false;
+	};
+	
+	instanceProto.isClientPosOverCanvas = function (touchX, touchY)
+	{
+		return touchX >= 0 && touchY >= 0 &&
+		    	touchX < this.runtime.width && touchY < this.runtime.height;
+	};
+	
+	instanceProto.tick2 = function()
+	{
+		var i, len, t;
+		var nowtime = cr.performance_now();
+		
+		for (i = 0, len = this.touches.length; i < len; ++i)
+		{
+			// Update speed for touches which haven't moved for 50ms
+			t = this.touches[i];
+			
+			if (t.time <= nowtime - 50)
+				t.lasttime = nowtime;
+			
+			// Gesture detection
+			t.maybeTriggerHold(this, i);
+		}
 	};
 	
 
@@ -32464,53 +31277,733 @@ cr.behaviors.DragnDrop = function(runtime)
 	// Conditions
 	function Cnds() {};
 
-	Cnds.prototype.IsDragging = function ()
-	{
-		return this.dragging;
-	};
-	
-	Cnds.prototype.OnDragStart = function ()
+	Cnds.prototype.OnTouchStart = function ()
 	{
 		return true;
 	};
 	
-	Cnds.prototype.OnDrop = function ()
+	Cnds.prototype.OnTouchEnd = function ()
 	{
 		return true;
 	};
 	
-	Cnds.prototype.IsEnabled = function ()
+	Cnds.prototype.IsInTouch = function ()
 	{
-		return !!this.enabled;
+		return this.touches.length;
 	};
 	
-	behaviorProto.cnds = new Cnds();
-
-	//////////////////////////////////////
-	// Actions
-	function Acts() {};
-
-	Acts.prototype.SetEnabled = function (s)
+	Cnds.prototype.OnTouchObject = function (type)
 	{
-		this.enabled = (s !== 0);
+		if (!type)
+			return false;
 		
-		// Got disabled: cancel any drag
-		if (!this.enabled)
-			this.dragging = false;
+		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
+			return false;
+			
+		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
 	};
 	
-	Acts.prototype.Drop = function ()
+	var touching = [];
+	
+	Cnds.prototype.IsTouchingObject = function (type)
 	{
-		if (this.dragging)
-			this.onUp();
+		if (!type)
+			return false;
+			
+		var sol = type.getCurrentSol();
+		var instances = sol.getObjects();
+		var px, py;
+			
+		// Check all touches for overlap with any instance
+		var i, leni, j, lenj;
+		for (i = 0, leni = instances.length; i < leni; i++)
+		{
+			var inst = instances[i];
+			inst.update_bbox();
+			
+			for (j = 0, lenj = this.touches.length; j < lenj; j++)
+			{
+				var touch = this.touches[j];
+				
+				if (!this.isClientPosOverCanvas(touch.x, touch.y))
+					continue;
+				
+				px = inst.layer.canvasToLayer(touch.x, touch.y, true);
+				py = inst.layer.canvasToLayer(touch.x, touch.y, false);
+				
+				if (inst.contains_pt(px, py))
+				{
+					touching.push(inst);
+					break;
+				}
+			}
+		}
+		
+		if (touching.length)
+		{
+			sol.select_all = false;
+			cr.shallowAssignArray(sol.instances, touching);
+			type.applySolToContainer();
+			cr.clearArray(touching);
+			return true;
+		}
+		else
+			return false;
 	};
 	
-	behaviorProto.acts = new Acts();
+	Cnds.prototype.CompareTouchSpeed = function (index, cmp, s)
+	{
+		index = Math.floor(index);
+		
+		if (index < 0 || index >= this.touches.length)
+			return false;
+		
+		var t = this.touches[index];
+		var dist = cr.distanceTo(t.x, t.y, t.lastx, t.lasty);
+		var timediff = (t.time - t.lasttime) / 1000;
+		var speed = 0;
+		
+		if (timediff > 0)
+			speed = dist / timediff;
+			
+		return cr.do_cmp(speed, cmp, s);
+	};
+	
+	Cnds.prototype.OrientationSupported = function ()
+	{
+		return typeof window["DeviceOrientationEvent"] !== "undefined";
+	};
+	
+	Cnds.prototype.MotionSupported = function ()
+	{
+		return typeof window["DeviceMotionEvent"] !== "undefined";
+	};
+	
+	Cnds.prototype.CompareOrientation = function (orientation_, cmp_, angle_)
+	{
+		var v = 0;
+		
+		if (orientation_ === 0)
+			v = this.getAlpha();
+		else if (orientation_ === 1)
+			v = this.getBeta();
+		else
+			v = this.getGamma();
+			
+		return cr.do_cmp(v, cmp_, angle_);
+	};
+	
+	Cnds.prototype.CompareAcceleration = function (acceleration_, cmp_, angle_)
+	{
+		var v = 0;
+		
+		if (acceleration_ === 0)
+			v = this.acc_g_x;
+		else if (acceleration_ === 1)
+			v = this.acc_g_y;
+		else if (acceleration_ === 2)
+			v = this.acc_g_z;
+		else if (acceleration_ === 3)
+			v = this.acc_x;
+		else if (acceleration_ === 4)
+			v = this.acc_y;
+		else if (acceleration_ === 5)
+			v = this.acc_z;
+		
+		return cr.do_cmp(v, cmp_, angle_);
+	};
+	
+	Cnds.prototype.OnNthTouchStart = function (touch_)
+	{
+		touch_ = Math.floor(touch_);
+		return touch_ === this.trigger_index;
+	};
+	
+	Cnds.prototype.OnNthTouchEnd = function (touch_)
+	{
+		touch_ = Math.floor(touch_);
+		return touch_ === this.trigger_index;
+	};
+	
+	Cnds.prototype.HasNthTouch = function (touch_)
+	{
+		touch_ = Math.floor(touch_);
+		return this.touches.length >= touch_ + 1;
+	};
+	
+	Cnds.prototype.OnHoldGesture = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.OnTapGesture = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.OnDoubleTapGesture = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.OnHoldGestureObject = function (type)
+	{
+		if (!type)
+			return false;
+		
+		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
+			return false;
+		
+		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
+	};
+	
+	Cnds.prototype.OnTapGestureObject = function (type)
+	{
+		if (!type)
+			return false;
+		
+		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
+			return false;
+		
+		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
+	};
+	
+	Cnds.prototype.OnDoubleTapGestureObject = function (type)
+	{
+		if (!type)
+			return false;
+		
+		if (!this.isClientPosOverCanvas(this.curTouchX, this.curTouchY))
+			return false;
+		
+		return this.runtime.testAndSelectCanvasPointOverlap(type, this.curTouchX, this.curTouchY, false);
+	};
+	
+	pluginProto.cnds = new Cnds();
 
 	//////////////////////////////////////
 	// Expressions
 	function Exps() {};
-	behaviorProto.exps = new Exps();
+
+	Exps.prototype.TouchCount = function (ret)
+	{
+		ret.set_int(this.touches.length);
+	};
+	
+	Exps.prototype.X = function (ret, layerparam)
+	{
+		var index = this.getTouchIndex;
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
+	
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxX = layer.parallaxX;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxX = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxX = oldParallaxX;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.XAt = function (ret, index, layerparam)
+	{
+		index = Math.floor(index);
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
+	
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxX = layer.parallaxX;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxX = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxX = oldParallaxX;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, true));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.XForID = function (ret, id, layerparam)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+		
+		var layer, oldScale, oldZoomRate, oldParallaxX, oldAngle;
+	
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxX = layer.parallaxX;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxX = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(touch.x, touch.y, true));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxX = oldParallaxX;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(touch.x, touch.y, true));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.Y = function (ret, layerparam)
+	{
+		var index = this.getTouchIndex;
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
+	
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxY = layer.parallaxY;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxY = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxY = oldParallaxY;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.YAt = function (ret, index, layerparam)
+	{
+		index = Math.floor(index);
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
+	
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxY = layer.parallaxY;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxY = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxY = oldParallaxY;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(this.touches[index].x, this.touches[index].y, false));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.YForID = function (ret, id, layerparam)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+		
+		var layer, oldScale, oldZoomRate, oldParallaxY, oldAngle;
+	
+		if (cr.is_undefined(layerparam))
+		{
+			// calculate X position on bottom layer as if its scale were 1.0
+			layer = this.runtime.getLayerByNumber(0);
+			oldScale = layer.scale;
+			oldZoomRate = layer.zoomRate;
+			oldParallaxY = layer.parallaxY;
+			oldAngle = layer.angle;
+			layer.scale = 1;
+			layer.zoomRate = 1.0;
+			layer.parallaxY = 1.0;
+			layer.angle = 0;
+			ret.set_float(layer.canvasToLayer(touch.x, touch.y, false));
+			layer.scale = oldScale;
+			layer.zoomRate = oldZoomRate;
+			layer.parallaxY = oldParallaxY;
+			layer.angle = oldAngle;
+		}
+		else
+		{
+			// use given layer param
+			if (cr.is_number(layerparam))
+				layer = this.runtime.getLayerByNumber(layerparam);
+			else
+				layer = this.runtime.getLayerByName(layerparam);
+				
+			if (layer)
+				ret.set_float(layer.canvasToLayer(touch.x, touch.y, false));
+			else
+				ret.set_float(0);
+		}
+	};
+	
+	Exps.prototype.AbsoluteX = function (ret)
+	{
+		if (this.touches.length)
+			ret.set_float(this.touches[0].x);
+		else
+			ret.set_float(0);
+	};
+	
+	Exps.prototype.AbsoluteXAt = function (ret, index)
+	{
+		index = Math.floor(index);
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+
+		ret.set_float(this.touches[index].x);
+	};
+	
+	Exps.prototype.AbsoluteXForID = function (ret, id)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+
+		ret.set_float(touch.x);
+	};
+	
+	Exps.prototype.AbsoluteY = function (ret)
+	{
+		if (this.touches.length)
+			ret.set_float(this.touches[0].y);
+		else
+			ret.set_float(0);
+	};
+	
+	Exps.prototype.AbsoluteYAt = function (ret, index)
+	{
+		index = Math.floor(index);
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+
+		ret.set_float(this.touches[index].y);
+	};
+	
+	Exps.prototype.AbsoluteYForID = function (ret, id)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+
+		ret.set_float(touch.y);
+	};
+	
+	Exps.prototype.SpeedAt = function (ret, index)
+	{
+		index = Math.floor(index);
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var t = this.touches[index];
+		var dist = cr.distanceTo(t.x, t.y, t.lastx, t.lasty);
+		var timediff = (t.time - t.lasttime) / 1000;
+		
+		if (timediff <= 0)
+			ret.set_float(0);
+		else
+			ret.set_float(dist / timediff);
+	};
+	
+	Exps.prototype.SpeedForID = function (ret, id)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+		
+		var dist = cr.distanceTo(touch.x, touch.y, touch.lastx, touch.lasty);
+		var timediff = (touch.time - touch.lasttime) / 1000;
+		
+		if (timediff <= 0)
+			ret.set_float(0);
+		else
+			ret.set_float(dist / timediff);
+	};
+	
+	Exps.prototype.AngleAt = function (ret, index)
+	{
+		index = Math.floor(index);
+		
+		if (index < 0 || index >= this.touches.length)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var t = this.touches[index];
+		ret.set_float(cr.to_degrees(cr.angleTo(t.lastx, t.lasty, t.x, t.y)));
+	};
+	
+	Exps.prototype.AngleForID = function (ret, id)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+		
+		ret.set_float(cr.to_degrees(cr.angleTo(touch.lastx, touch.lasty, touch.x, touch.y)));
+	};
+	
+	Exps.prototype.Alpha = function (ret)
+	{
+		ret.set_float(this.getAlpha());
+	};
+	
+	Exps.prototype.Beta = function (ret)
+	{
+		ret.set_float(this.getBeta());
+	};
+	
+	Exps.prototype.Gamma = function (ret)
+	{
+		ret.set_float(this.getGamma());
+	};
+	
+	Exps.prototype.AccelerationXWithG = function (ret)
+	{
+		ret.set_float(this.acc_g_x);
+	};
+	
+	Exps.prototype.AccelerationYWithG = function (ret)
+	{
+		ret.set_float(this.acc_g_y);
+	};
+	
+	Exps.prototype.AccelerationZWithG = function (ret)
+	{
+		ret.set_float(this.acc_g_z);
+	};
+	
+	Exps.prototype.AccelerationX = function (ret)
+	{
+		ret.set_float(this.acc_x);
+	};
+	
+	Exps.prototype.AccelerationY = function (ret)
+	{
+		ret.set_float(this.acc_y);
+	};
+	
+	Exps.prototype.AccelerationZ = function (ret)
+	{
+		ret.set_float(this.acc_z);
+	};
+	
+	Exps.prototype.TouchIndex = function (ret)
+	{
+		ret.set_int(this.trigger_index);
+	};
+	
+	Exps.prototype.TouchID = function (ret)
+	{
+		ret.set_float(this.trigger_id);
+	};
+	
+	Exps.prototype.WidthForID = function (ret, id)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+		ret.set_float(touch.width);
+	};
+	
+	Exps.prototype.HeightForID = function (ret, id)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+		ret.set_float(touch.height);
+	};
+	
+	Exps.prototype.PressureForID = function (ret, id)
+	{
+		var index = this.findTouch(id);
+		
+		if (index < 0)
+		{
+			ret.set_float(0);
+			return;
+		}
+		
+		var touch = this.touches[index];
+		ret.set_float(touch.pressure);
+	};
+	
+	pluginProto.exps = new Exps();
 	
 }());
 
@@ -34445,6 +33938,513 @@ cr.behaviors.Physics = function(runtime)
 	
 }());
 
+// Drag & Drop
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Behavior class
+cr.behaviors.DragnDrop = function(runtime)
+{
+	this.runtime = runtime;
+	var self = this;
+	
+	document.addEventListener("mousemove", function(info) {
+		self.onMouseMove(info);
+	});
+		
+	document.addEventListener("mousedown", function(info) {
+		self.onMouseDown(info);
+	});
+	
+	document.addEventListener("mouseup", function(info) {
+		self.onMouseUp(info);
+	});
+	
+	// Use document touch input for fullscreen mode
+	var elem = (this.runtime.fullscreen_mode > 0) ? document : this.runtime.canvas;
+	
+	if (typeof PointerEvent !== "undefined")
+	{
+		elem.addEventListener("pointerdown",
+			function(info) {
+				self.onPointerStart(info);
+			},
+			false
+		);
+		
+		elem.addEventListener("pointermove",
+			function(info) {
+				self.onPointerMove(info);
+			},
+			false
+		);
+		
+		elem.addEventListener("pointerup",
+			function(info) {
+				self.onPointerEnd(info);
+			},
+			false
+		);
+		
+		// Treat pointer cancellation the same as a touch end
+		elem.addEventListener("pointercancel",
+			function(info) {
+				self.onPointerEnd(info);
+			},
+			false
+		);
+	}
+	else if (window.navigator["msPointerEnabled"])
+	{
+		elem.addEventListener("MSPointerDown",
+			function(info) {
+				self.onPointerStart(info);
+			},
+			false
+		);
+		
+		elem.addEventListener("MSPointerMove",
+			function(info) {
+				self.onPointerMove(info);
+			},
+			false
+		);
+		
+		elem.addEventListener("MSPointerUp",
+			function(info) {
+				self.onPointerEnd(info);
+			},
+			false
+		);
+		
+		// Treat pointer cancellation the same as a touch end
+		elem.addEventListener("MSPointerCancel",
+			function(info) {
+				self.onPointerEnd(info);
+			},
+			false
+		);
+	}
+	else
+	{
+		elem.addEventListener("touchstart",
+			function(info) {
+				self.onTouchStart(info);
+			},
+			false
+		);
+		
+		elem.addEventListener("touchmove",
+			function(info) {
+				self.onTouchMove(info);
+			},
+			false
+		);
+		
+		elem.addEventListener("touchend",
+			function(info) {
+				self.onTouchEnd(info);
+			},
+			false
+		);
+		
+		elem.addEventListener("touchcancel",
+			function(info) {
+				self.onTouchEnd(info);
+			},
+			false
+		);
+	}
+};
+
+(function ()
+{
+	var behaviorProto = cr.behaviors.DragnDrop.prototype;
+	
+	var dummyoffset = {left: 0, top: 0};
+	
+	function GetDragDropBehavior(inst)
+	{
+		var i, len;
+		for (i = 0, len = inst.behavior_insts.length; i < len; i++)
+		{
+			if (inst.behavior_insts[i] instanceof behaviorProto.Instance)
+				return inst.behavior_insts[i];
+		}
+		
+		return null;
+	};
+	
+	behaviorProto.onMouseDown = function (info)
+	{
+		if (info.which !== 1)
+			return;		// not left mouse button
+			
+		this.onInputDown("leftmouse", info.pageX, info.pageY);
+	};
+	
+	behaviorProto.onMouseMove = function (info)
+	{
+		if (info.which !== 1)
+			return;		// not left mouse button
+			
+		this.onInputMove("leftmouse", info.pageX, info.pageY);
+	};
+	
+	behaviorProto.onMouseUp = function (info)
+	{
+		if (info.which !== 1)
+			return;		// not left mouse button
+			
+		this.onInputUp("leftmouse");
+	};
+	
+	behaviorProto.onTouchStart = function (info)
+	{
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+		
+		var i, len, t, id;
+		for (i = 0, len = info.changedTouches.length; i < len; i++)
+		{
+			t = info.changedTouches[i];
+			
+			id = t.identifier;
+			this.onInputDown(id ? id.toString() : "<none>", t.pageX, t.pageY);
+		}
+	};
+	
+	behaviorProto.onTouchMove = function (info)
+	{
+		if (info.preventDefault)
+			info.preventDefault();
+		
+		var i, len, t, id;
+		for (i = 0, len = info.changedTouches.length; i < len; i++)
+		{
+			t = info.changedTouches[i];
+			id = t.identifier;
+			this.onInputMove(id ? id.toString() : "<none>", t.pageX, t.pageY);
+		}
+	};
+	
+	behaviorProto.onTouchEnd = function (info)
+	{
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+		
+		var i, len, t, id;
+		for (i = 0, len = info.changedTouches.length; i < len; i++)
+		{
+			t = info.changedTouches[i];
+			id = t.identifier;
+			this.onInputUp(id ? id.toString() : "<none>");
+		}
+	};
+	
+	behaviorProto.onPointerStart = function (info)
+	{
+		// Ignore mouse events
+		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
+			return;
+			
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+		
+		this.onInputDown(info["pointerId"].toString(), info.pageX, info.pageY);
+	};
+	
+	behaviorProto.onPointerMove = function (info)
+	{
+		// Ignore mouse events
+		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
+			return;
+			
+		if (info.preventDefault)
+			info.preventDefault();
+		
+		this.onInputMove(info["pointerId"].toString(), info.pageX, info.pageY);
+	};
+	
+	behaviorProto.onPointerEnd = function (info)
+	{
+		// Ignore mouse events
+		if (info["pointerType"] === info["MSPOINTER_TYPE_MOUSE"] || info["pointerType"] === "mouse")
+			return;
+			
+		if (info.preventDefault && cr.isCanvasInputEvent(info))
+			info.preventDefault();
+		
+		this.onInputUp(info["pointerId"].toString());
+	};
+	
+	behaviorProto.onInputDown = function (src, pageX, pageY)
+	{
+		var offsetLeft = this.runtime.canvas.offsetLeft;
+		var offsetTop = this.runtime.canvas.offsetTop;
+		var x = pageX - offsetLeft;
+		var y = pageY - offsetTop;
+		var lx, ly, topx, topy;
+		
+		var arr = this.my_instances.valuesRef();
+		
+		var i, len, b, inst, topmost = null;
+		for (i = 0, len = arr.length; i < len; i++)
+		{
+			inst = arr[i];
+			b = GetDragDropBehavior(inst);
+			
+			if (!b.enabled || b.dragging)
+				continue;		// don't consider disabled or already-dragging instances
+				
+			lx = inst.layer.canvasToLayer(x, y, true);
+			ly = inst.layer.canvasToLayer(x, y, false);
+			inst.update_bbox();
+			if (!inst.contains_pt(lx, ly))
+				continue;		// don't consider instances not over this point
+				
+			// First instance found
+			if (!topmost)
+			{
+				topmost = inst;
+				topx = lx;
+				topy = ly;
+				continue;
+			}
+			
+			// Otherwise prefer the topmost instance of all overlapping the point
+			if (inst.layer.index > topmost.layer.index)
+			{
+				topmost = inst;
+				topx = lx;
+				topy = ly;
+				continue;
+			}
+			
+			if (inst.layer.index === topmost.layer.index && inst.get_zindex() > topmost.get_zindex())
+			{
+				topmost = inst;
+				topx = lx;
+				topy = ly;
+				continue;
+			}
+		}
+		
+		if (topmost)
+			GetDragDropBehavior(topmost).onDown(src, topx, topy);
+	};
+	
+	behaviorProto.onInputMove = function (src, pageX, pageY)
+	{
+		var offsetLeft = this.runtime.canvas.offsetLeft;
+		var offsetTop = this.runtime.canvas.offsetTop;
+		var x = pageX - offsetLeft;
+		var y = pageY - offsetTop;
+		var lx, ly;
+		
+		var arr = this.my_instances.valuesRef();
+		
+		var i, len, b, inst;
+		for (i = 0, len = arr.length; i < len; i++)
+		{
+			inst = arr[i];
+			b = GetDragDropBehavior(inst);
+			
+			if (!b.enabled || !b.dragging || (b.dragging && b.dragsource !== src))
+				continue;		// don't consider disabled, not-dragging, or dragging by other sources
+				
+			lx = inst.layer.canvasToLayer(x, y, true);
+			ly = inst.layer.canvasToLayer(x, y, false);
+			b.onMove(lx, ly);
+		}
+	};
+	
+	behaviorProto.onInputUp = function (src)
+	{
+		var arr = this.my_instances.valuesRef();
+		
+		var i, len, b, inst;
+		for (i = 0, len = arr.length; i < len; i++)
+		{
+			inst = arr[i];
+			b = GetDragDropBehavior(inst);
+			
+			if (b.dragging && b.dragsource === src)
+				b.onUp();
+		}
+	};
+		
+	/////////////////////////////////////
+	// Behavior type class
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+	
+	var behtypeProto = behaviorProto.Type.prototype;
+
+	behtypeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Behavior instance class
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+	};
+	
+	var behinstProto = behaviorProto.Instance.prototype;
+
+	behinstProto.onCreate = function()
+	{
+		this.dragging = false;
+		this.dx = 0;
+		this.dy = 0;
+		this.dragsource = "<none>";
+		
+		// 0 = both, 1 = horizontal, 2 = vertical
+		this.axes = this.properties[0];
+		this.enabled = this.properties[1];
+	};
+	
+	behinstProto.saveToJSON = function ()
+	{
+		return { "enabled": this.enabled };
+	};
+	
+	behinstProto.loadFromJSON = function (o)
+	{
+		this.enabled = o["enabled"];
+		this.dragging = false;
+	};
+	
+	behinstProto.onDown = function(src, x, y)
+	{
+		this.dx = x - this.inst.x;
+		this.dy = y - this.inst.y;
+		this.dragging = true;
+		this.dragsource = src;
+		
+		// Trigger 'On drag start'
+		this.runtime.isInUserInputEvent = true;
+		this.runtime.trigger(cr.behaviors.DragnDrop.prototype.cnds.OnDragStart, this.inst);
+		this.runtime.isInUserInputEvent = false;
+	};
+	
+	behinstProto.onMove = function(x, y)
+	{
+		var newx = x - this.dx;
+		var newy = y - this.dy;
+		
+		if (this.axes === 0)		// both
+		{
+			if (this.inst.x !== newx || this.inst.y !== newy)
+			{
+				this.inst.x = newx;
+				this.inst.y = newy;
+				this.inst.set_bbox_changed();
+			}
+		}
+		else if (this.axes === 1)	// horizontal
+		{
+			if (this.inst.x !== newx)
+			{
+				this.inst.x = newx;
+				this.inst.set_bbox_changed();
+			}
+		}
+		else if (this.axes === 2)	// vertical
+		{
+			if (this.inst.y !== newy)
+			{
+				this.inst.y = newy;
+				this.inst.set_bbox_changed();
+			}
+		}
+	};
+	
+	behinstProto.onUp = function()
+	{
+		this.dragging = false;
+			
+		// Trigger 'On drop'
+		this.runtime.isInUserInputEvent = true;
+		this.runtime.trigger(cr.behaviors.DragnDrop.prototype.cnds.OnDrop, this.inst);
+		this.runtime.isInUserInputEvent = false;
+	};
+
+	behinstProto.tick = function ()
+	{
+		//var dt = this.runtime.getDt(this.inst);
+		
+		// called every tick for you to update this.inst as necessary
+		// dt is the amount of time passed since the last tick, in case it's a movement
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+
+	Cnds.prototype.IsDragging = function ()
+	{
+		return this.dragging;
+	};
+	
+	Cnds.prototype.OnDragStart = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.OnDrop = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.IsEnabled = function ()
+	{
+		return !!this.enabled;
+	};
+	
+	behaviorProto.cnds = new Cnds();
+
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.SetEnabled = function (s)
+	{
+		this.enabled = (s !== 0);
+		
+		// Got disabled: cancel any drag
+		if (!this.enabled)
+			this.dragging = false;
+	};
+	
+	Acts.prototype.Drop = function ()
+	{
+		if (this.dragging)
+			this.onUp();
+	};
+	
+	behaviorProto.acts = new Acts();
+
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+	behaviorProto.exps = new Exps();
+	
+}());
+
 // Bound to layout
 // ECMAScript 5 strict mode
 
@@ -34556,523 +34556,6 @@ cr.behaviors.bound = function(runtime)
 		
 		if (changed)
 			this.inst.set_bbox_changed();
-	};
-	
-}());
-
-// Bullet
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Behavior class
-cr.behaviors.Bullet = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	var behaviorProto = cr.behaviors.Bullet.prototype;
-		
-	/////////////////////////////////////
-	// Behavior type class
-	behaviorProto.Type = function(behavior, objtype)
-	{
-		this.behavior = behavior;
-		this.objtype = objtype;
-		this.runtime = behavior.runtime;
-	};
-
-	var behtypeProto = behaviorProto.Type.prototype;
-
-	behtypeProto.onCreate = function()
-	{
-	};
-
-	/////////////////////////////////////
-	// Behavior instance class
-	behaviorProto.Instance = function(type, inst)
-	{
-		this.type = type;
-		this.behavior = type.behavior;
-		this.inst = inst;				// associated object instance to modify
-		this.runtime = type.runtime;
-	};
-
-	var behinstProto = behaviorProto.Instance.prototype;
-
-	behinstProto.onCreate = function()
-	{
-		var speed = this.properties[0];
-		this.acc = this.properties[1];
-		this.g = this.properties[2];
-		this.bounceOffSolid = this.properties[3];
-		this.setAngle = this.properties[4];
-		this.step = this.properties[5];
-		this.stepSize = Math.abs(Math.min(this.inst.width, this.inst.height) / 2);
-		this.stopStepping = false;
-		
-		this.dx = Math.cos(this.inst.angle) * speed;
-		this.dy = Math.sin(this.inst.angle) * speed;
-		this.lastx = this.inst.x;
-		this.lasty = this.inst.y;		
-		this.lastKnownAngle = this.inst.angle;
-		this.travelled = 0;
-		
-		this.enabled = this.properties[6];
-	};
-	
-	behinstProto.saveToJSON = function ()
-	{
-		return {
-			"acc": this.acc,
-			"g": this.g,
-			"dx": this.dx,
-			"dy": this.dy,
-			"lx": this.lastx,
-			"ly": this.lasty,
-			"lka": this.lastKnownAngle,
-			"t": this.travelled,
-			"st": this.step,
-			"e": this.enabled
-		};
-	};
-	
-	behinstProto.loadFromJSON = function (o)
-	{
-		this.acc = o["acc"];
-		this.g = o["g"];
-		this.dx = o["dx"];
-		this.dy = o["dy"];
-		this.lastx = o["lx"];
-		this.lasty = o["ly"];
-		this.lastKnownAngle = o["lka"];
-		this.travelled = o["t"];
-		this.step = !!o["st"];
-		this.enabled = o["e"];
-	};
-
-	behinstProto.tick = function ()
-	{
-		if (!this.enabled)
-			return;
-			
-		var dt = this.runtime.getDt(this.inst);
-		var s, a;
-		var bounceSolid, bounceAngle;
-		
-		// Object had its angle changed: change angle of motion, providing 'Set angle' is enabled.
-		if (this.inst.angle !== this.lastKnownAngle)
-		{
-			if (this.setAngle)
-			{
-				s = cr.distanceTo(0, 0, this.dx, this.dy);
-				this.dx = Math.cos(this.inst.angle) * s;
-				this.dy = Math.sin(this.inst.angle) * s;
-			}
-			
-			this.lastKnownAngle = this.inst.angle;
-		}
-		
-		// Apply acceleration
-		var xacc = 0;
-		var yacc = 0;
-		
-		if (this.acc !== 0)
-		{
-			s = cr.distanceTo(0, 0, this.dx, this.dy);
-			
-			if (this.dx === 0 && this.dy === 0)
-				a = this.inst.angle;
-			else
-				a = cr.angleTo(0, 0, this.dx, this.dy);
-			
-			// Note acceleration is applied in polar co-ordinates, but we must separately track the
-			// X and Y components of acceleration for the position calculation below.
-			s += this.acc * dt;
-			xacc = Math.cos(a) * this.acc;
-			yacc = Math.sin(a) * this.acc;
-			
-			// Don't decelerate to negative speeds
-			if (s < 0)
-			{
-				s = 0;
-				xacc = 0;
-				yacc = 0;
-			}
-			
-			this.dx = Math.cos(a) * s;
-			this.dy = Math.sin(a) * s;
-		}
-		
-		// Apply gravity
-		if (this.g !== 0)
-		{
-			this.dy += this.g * dt;
-			yacc += this.g;
-		}
-			
-		this.lastx = this.inst.x;
-		this.lasty = this.inst.y;
-		
-		// Apply movement to the object
-		if (this.dx !== 0 || this.dy !== 0)
-		{
-			var mx = this.runtime.accelerate(this.dx, -Infinity, Infinity, xacc, dt);
-			var my = this.runtime.accelerate(this.dy, -Infinity, Infinity, yacc, dt);
-			
-			// offsets the X and Y, or does stepping if enabled
-			this.moveBy(mx, my);
-			
-			this.travelled += cr.distanceTo(this.lastx, this.lasty, this.inst.x, this.inst.y);
-			
-			if (this.setAngle && (mx !== 0 || my !== 0))			// skip if no movement (e.g. dt is 0) otherwise resets angle to right
-			{
-				this.inst.angle = cr.angleTo(0, 0, mx, my);
-				this.inst.set_bbox_changed();
-				this.lastKnownAngle = this.inst.angle;
-			}
-			
-			// Is bouncing off solid and has moved in to a solid
-			if (this.bounceOffSolid)
-			{
-				bounceSolid = this.runtime.testOverlapSolid(this.inst);
-				
-				// Has hit a solid
-				if (bounceSolid)
-				{
-					this.runtime.registerCollision(this.inst, bounceSolid);
-					
-					s = cr.distanceTo(0, 0, this.dx, this.dy);
-					bounceAngle = this.runtime.calculateSolidBounceAngle(this.inst, this.lastx, this.lasty);
-					this.dx = Math.cos(bounceAngle) * s;
-					this.dy = Math.sin(bounceAngle) * s;
-					this.inst.x += this.dx * dt;			// move out for one tick since the object can't have spent a tick in the solid
-					this.inst.y += this.dy * dt;
-					this.inst.set_bbox_changed();
-					
-					if (this.setAngle)
-					{
-						// Setting the object angle after a bounce may cause it to overlap a solid again.
-						// Make sure it's pushed out.
-						this.inst.angle = bounceAngle;
-						this.lastKnownAngle = bounceAngle;
-						this.inst.set_bbox_changed();
-					}
-					
-					// Advance the object until it is outside the solid
-					if (!this.runtime.pushOutSolid(this.inst, this.dx / s, this.dy / s, Math.max(s * 2.5 * dt, 30)))
-						this.runtime.pushOutSolidNearest(this.inst, 100);
-				}
-			}
-		}
-	};
-	
-	behinstProto.moveBy = function (mx, my)
-	{
-		var stepDist = cr.distanceTo(0, 0, mx, my);
-		
-		// Stepping disabled or moving less than the step size: just move to destination
-		if (!this.step || stepDist <= this.stepSize)
-		{
-			this.inst.x += mx;
-			this.inst.y += my;
-			this.inst.set_bbox_changed();
-			
-			// If stepping is disabled (and we're just skipping because the step distance is small), trigger 'On step' anyway.
-			// This is so if we only have a collision check in an 'On step' trigger, it continues to work as expected.
-			if (this.step)
-			{
-				this.runtime.trigger(cr.behaviors.Bullet.prototype.cnds.OnStep, this.inst);
-			}
-			
-			return;
-		}
-		
-		this.stopStepping = false;
-		
-		// Move in steps of stepSize.
-		var startX = this.inst.x;
-		var startY = this.inst.y;
-		var endX = startX + mx;
-		var endY = startY + my;
-		var a = cr.angleTo(0, 0, mx, my);
-		var stepX = Math.cos(a) * this.stepSize;
-		var stepY = Math.sin(a) * this.stepSize;
-		
-		var stepCount = Math.floor(stepDist / this.stepSize);
-		var i = 1;						// skip 0th step (is same as starting position)
-		for ( ; i <= stepCount; ++i)	// include last step
-		{
-			this.inst.x = startX + stepX * i;
-			this.inst.y = startY + stepY * i;
-			this.inst.set_bbox_changed();
-			
-			this.runtime.trigger(cr.behaviors.Bullet.prototype.cnds.OnStep, this.inst);
-			
-			if (this.inst.isDestroyed || this.stopStepping)
-				return;
-		}
-		
-		// Do one last step at the finishing position, so we don't need an extra collision event
-		this.inst.x = endX;
-		this.inst.y = endY;
-		this.inst.set_bbox_changed();
-		this.runtime.trigger(cr.behaviors.Bullet.prototype.cnds.OnStep, this.inst);
-	};
-	
-
-	//////////////////////////////////////
-	// Conditions
-	function Cnds() {};
-
-	Cnds.prototype.CompareSpeed = function (cmp, s)
-	{
-		return cr.do_cmp(cr.distanceTo(0, 0, this.dx, this.dy), cmp, s);
-	};
-	
-	Cnds.prototype.CompareTravelled = function (cmp, d)
-	{
-		return cr.do_cmp(this.travelled, cmp, d);
-	};
-	
-	Cnds.prototype.OnStep = function ()
-	{
-		return true;
-	};
-	
-	Cnds.prototype.IsEnabled = function ()
-	{
-		return this.enabled;
-	};
-	
-	behaviorProto.cnds = new Cnds();
-
-	//////////////////////////////////////
-	// Actions
-	function Acts() {};
-
-	Acts.prototype.SetSpeed = function (s)
-	{
-		var a = cr.angleTo(0, 0, this.dx, this.dy);
-		this.dx = Math.cos(a) * s;
-		this.dy = Math.sin(a) * s;
-	};
-	
-	Acts.prototype.SetAcceleration = function (a)
-	{
-		this.acc = a;
-	};
-	
-	Acts.prototype.SetGravity = function (g)
-	{
-		this.g = g;
-	};
-	
-	Acts.prototype.SetAngleOfMotion = function (a)
-	{
-		a = cr.to_radians(a);
-		var s = cr.distanceTo(0, 0, this.dx, this.dy)
-		this.dx = Math.cos(a) * s;
-		this.dy = Math.sin(a) * s;
-	};
-	
-	Acts.prototype.Bounce = function (objtype)
-	{
-		if (!objtype)
-			return;
-		
-		var otherinst = objtype.getFirstPicked(this.inst);
-		
-		if (!otherinst)
-			return;
-			
-		var dt = this.runtime.getDt(this.inst);
-		var s = cr.distanceTo(0, 0, this.dx, this.dy);
-		var bounceAngle = this.runtime.calculateSolidBounceAngle(this.inst, this.lastx, this.lasty, otherinst);
-		this.dx = Math.cos(bounceAngle) * s;
-		this.dy = Math.sin(bounceAngle) * s;
-		this.inst.x += this.dx * dt;			// move out for one tick since the object can't have spent a tick in the solid
-		this.inst.y += this.dy * dt;
-		this.inst.set_bbox_changed();
-		
-		if (this.setAngle)
-		{
-			// Setting the object angle after a bounce may cause it to overlap a solid again.
-			// Make sure it's pushed out.
-			this.inst.angle = bounceAngle;
-			this.lastKnownAngle = bounceAngle;
-			this.inst.set_bbox_changed();
-		}
-		
-		// Advance the object until it is outside the solid
-		if (s !== 0)		// prevent divide-by-zero
-		{
-			if (this.bounceOffSolid)
-			{
-				if (!this.runtime.pushOutSolid(this.inst, this.dx / s, this.dy / s, Math.max(s * 2.5 * dt, 30)))
-					this.runtime.pushOutSolidNearest(this.inst, 100);
-			}
-			else 
-			{
-				this.runtime.pushOut(this.inst, this.dx / s, this.dy / s, Math.max(s * 2.5 * dt, 30), otherinst)
-			}
-		}
-	};
-	
-	Acts.prototype.SetDistanceTravelled = function (d)
-	{
-		this.travelled = d;
-	};
-	
-	Acts.prototype.SetEnabled = function (en)
-	{
-		this.enabled = (en === 1);
-	};
-	
-	Acts.prototype.StopStepping = function ()
-	{
-		this.stopStepping = true;
-	}
-	
-	behaviorProto.acts = new Acts();
-
-	//////////////////////////////////////
-	// Expressions
-	function Exps() {};
-
-	Exps.prototype.Speed = function (ret)
-	{
-		var s = cr.distanceTo(0, 0, this.dx, this.dy);
-		
-		// Due to floating point inaccuracy is likely to return 99.9999999 when speed is set to 100.
-		// So round to nearest millionth of a pixel per second.
-		s = cr.round6dp(s);
-		
-		ret.set_float(s);
-	};
-	
-	Exps.prototype.Acceleration = function (ret)
-	{
-		ret.set_float(this.acc);
-	};
-	
-	Exps.prototype.AngleOfMotion = function (ret)
-	{
-		ret.set_float(cr.to_degrees(cr.angleTo(0, 0, this.dx, this.dy)));
-	};
-	
-	Exps.prototype.DistanceTravelled = function (ret)
-	{
-		ret.set_float(this.travelled);
-	};
-	
-	Exps.prototype.Gravity = function (ret)
-	{
-		ret.set_float(this.g);
-	};
-	
-	behaviorProto.exps = new Exps();
-	
-}());
-
-// Wrap
-// ECMAScript 5 strict mode
-
-;
-;
-
-/////////////////////////////////////
-// Behavior class
-cr.behaviors.wrap = function(runtime)
-{
-	this.runtime = runtime;
-};
-
-(function ()
-{
-	var behaviorProto = cr.behaviors.wrap.prototype;
-		
-	/////////////////////////////////////
-	// Behavior type class
-	behaviorProto.Type = function(behavior, objtype)
-	{
-		this.behavior = behavior;
-		this.objtype = objtype;
-		this.runtime = behavior.runtime;
-	};
-
-	var behtypeProto = behaviorProto.Type.prototype;
-
-	behtypeProto.onCreate = function()
-	{
-	};
-
-	/////////////////////////////////////
-	// Behavior instance class
-	behaviorProto.Instance = function(type, inst)
-	{
-		this.type = type;
-		this.behavior = type.behavior;
-		this.inst = inst;				// associated object instance to modify
-		this.runtime = type.runtime;
-	};
-	
-	var behinstProto = behaviorProto.Instance.prototype;
-
-	behinstProto.onCreate = function()
-	{
-		this.mode = this.properties[0];		// 0 = wrap to layout, 1 = wrap to viewport
-	};
-
-	behinstProto.tick = function ()
-	{
-		var inst = this.inst;
-		inst.update_bbox();
-		var bbox = inst.bbox;
-		var layer = inst.layer;
-		var layout = layer.layout;
-		
-		var lbound = 0, rbound = 0, tbound = 0, bbound = 0;
-		
-		// wrap to layout
-		if (this.mode === 0)
-		{
-			rbound = layout.width;
-			bbound = layout.height;
-		}
-		// wrap to viewport
-		else
-		{
-			lbound = layer.viewLeft;
-			rbound = layer.viewRight;
-			tbound = layer.viewTop;
-			bbound = layer.viewBottom;
-		}
-		
-		if (bbox.right < lbound)
-		{
-			inst.x = (rbound - 1) + (inst.x - bbox.left);
-			inst.set_bbox_changed();
-		}
-		else if (bbox.left > rbound)
-		{
-			inst.x = (lbound + 1) - (bbox.right - inst.x);
-			inst.set_bbox_changed();
-		}
-		else if (bbox.bottom < tbound)
-		{
-			inst.y = (bbound - 1) + (inst.y - bbox.top);
-			inst.set_bbox_changed();
-		}
-		else if (bbox.top > bbound)
-		{
-			inst.y = (tbound + 1) - (bbox.bottom - inst.y);
-			inst.set_bbox_changed();
-		}
 	};
 	
 }());
@@ -36232,33 +35715,554 @@ cr.behaviors.EightDir = function(runtime)
 	
 }());
 
+// Bullet
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Behavior class
+cr.behaviors.Bullet = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	var behaviorProto = cr.behaviors.Bullet.prototype;
+		
+	/////////////////////////////////////
+	// Behavior type class
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+
+	var behtypeProto = behaviorProto.Type.prototype;
+
+	behtypeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Behavior instance class
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+	};
+
+	var behinstProto = behaviorProto.Instance.prototype;
+
+	behinstProto.onCreate = function()
+	{
+		var speed = this.properties[0];
+		this.acc = this.properties[1];
+		this.g = this.properties[2];
+		this.bounceOffSolid = this.properties[3];
+		this.setAngle = this.properties[4];
+		this.step = this.properties[5];
+		this.stepSize = Math.abs(Math.min(this.inst.width, this.inst.height) / 2);
+		this.stopStepping = false;
+		
+		this.dx = Math.cos(this.inst.angle) * speed;
+		this.dy = Math.sin(this.inst.angle) * speed;
+		this.lastx = this.inst.x;
+		this.lasty = this.inst.y;		
+		this.lastKnownAngle = this.inst.angle;
+		this.travelled = 0;
+		
+		this.enabled = this.properties[6];
+	};
+	
+	behinstProto.saveToJSON = function ()
+	{
+		return {
+			"acc": this.acc,
+			"g": this.g,
+			"dx": this.dx,
+			"dy": this.dy,
+			"lx": this.lastx,
+			"ly": this.lasty,
+			"lka": this.lastKnownAngle,
+			"t": this.travelled,
+			"st": this.step,
+			"e": this.enabled
+		};
+	};
+	
+	behinstProto.loadFromJSON = function (o)
+	{
+		this.acc = o["acc"];
+		this.g = o["g"];
+		this.dx = o["dx"];
+		this.dy = o["dy"];
+		this.lastx = o["lx"];
+		this.lasty = o["ly"];
+		this.lastKnownAngle = o["lka"];
+		this.travelled = o["t"];
+		this.step = !!o["st"];
+		this.enabled = o["e"];
+	};
+
+	behinstProto.tick = function ()
+	{
+		if (!this.enabled)
+			return;
+			
+		var dt = this.runtime.getDt(this.inst);
+		var s, a;
+		var bounceSolid, bounceAngle;
+		
+		// Object had its angle changed: change angle of motion, providing 'Set angle' is enabled.
+		if (this.inst.angle !== this.lastKnownAngle)
+		{
+			if (this.setAngle)
+			{
+				s = cr.distanceTo(0, 0, this.dx, this.dy);
+				this.dx = Math.cos(this.inst.angle) * s;
+				this.dy = Math.sin(this.inst.angle) * s;
+			}
+			
+			this.lastKnownAngle = this.inst.angle;
+		}
+		
+		// Apply acceleration
+		var xacc = 0;
+		var yacc = 0;
+		
+		if (this.acc !== 0)
+		{
+			s = cr.distanceTo(0, 0, this.dx, this.dy);
+			
+			if (this.dx === 0 && this.dy === 0)
+				a = this.inst.angle;
+			else
+				a = cr.angleTo(0, 0, this.dx, this.dy);
+			
+			// Note acceleration is applied in polar co-ordinates, but we must separately track the
+			// X and Y components of acceleration for the position calculation below.
+			s += this.acc * dt;
+			xacc = Math.cos(a) * this.acc;
+			yacc = Math.sin(a) * this.acc;
+			
+			// Don't decelerate to negative speeds
+			if (s < 0)
+			{
+				s = 0;
+				xacc = 0;
+				yacc = 0;
+			}
+			
+			this.dx = Math.cos(a) * s;
+			this.dy = Math.sin(a) * s;
+		}
+		
+		// Apply gravity
+		if (this.g !== 0)
+		{
+			this.dy += this.g * dt;
+			yacc += this.g;
+		}
+			
+		this.lastx = this.inst.x;
+		this.lasty = this.inst.y;
+		
+		// Apply movement to the object
+		if (this.dx !== 0 || this.dy !== 0)
+		{
+			var mx = this.runtime.accelerate(this.dx, -Infinity, Infinity, xacc, dt);
+			var my = this.runtime.accelerate(this.dy, -Infinity, Infinity, yacc, dt);
+			
+			// offsets the X and Y, or does stepping if enabled
+			this.moveBy(mx, my);
+			
+			this.travelled += cr.distanceTo(this.lastx, this.lasty, this.inst.x, this.inst.y);
+			
+			if (this.setAngle && (mx !== 0 || my !== 0))			// skip if no movement (e.g. dt is 0) otherwise resets angle to right
+			{
+				this.inst.angle = cr.angleTo(0, 0, mx, my);
+				this.inst.set_bbox_changed();
+				this.lastKnownAngle = this.inst.angle;
+			}
+			
+			// Is bouncing off solid and has moved in to a solid
+			if (this.bounceOffSolid)
+			{
+				bounceSolid = this.runtime.testOverlapSolid(this.inst);
+				
+				// Has hit a solid
+				if (bounceSolid)
+				{
+					this.runtime.registerCollision(this.inst, bounceSolid);
+					
+					s = cr.distanceTo(0, 0, this.dx, this.dy);
+					bounceAngle = this.runtime.calculateSolidBounceAngle(this.inst, this.lastx, this.lasty);
+					this.dx = Math.cos(bounceAngle) * s;
+					this.dy = Math.sin(bounceAngle) * s;
+					this.inst.x += this.dx * dt;			// move out for one tick since the object can't have spent a tick in the solid
+					this.inst.y += this.dy * dt;
+					this.inst.set_bbox_changed();
+					
+					if (this.setAngle)
+					{
+						// Setting the object angle after a bounce may cause it to overlap a solid again.
+						// Make sure it's pushed out.
+						this.inst.angle = bounceAngle;
+						this.lastKnownAngle = bounceAngle;
+						this.inst.set_bbox_changed();
+					}
+					
+					// Advance the object until it is outside the solid
+					if (!this.runtime.pushOutSolid(this.inst, this.dx / s, this.dy / s, Math.max(s * 2.5 * dt, 30)))
+						this.runtime.pushOutSolidNearest(this.inst, 100);
+				}
+			}
+		}
+	};
+	
+	behinstProto.moveBy = function (mx, my)
+	{
+		var stepDist = cr.distanceTo(0, 0, mx, my);
+		
+		// Stepping disabled or moving less than the step size: just move to destination
+		if (!this.step || stepDist <= this.stepSize)
+		{
+			this.inst.x += mx;
+			this.inst.y += my;
+			this.inst.set_bbox_changed();
+			
+			// If stepping is disabled (and we're just skipping because the step distance is small), trigger 'On step' anyway.
+			// This is so if we only have a collision check in an 'On step' trigger, it continues to work as expected.
+			if (this.step)
+			{
+				this.runtime.trigger(cr.behaviors.Bullet.prototype.cnds.OnStep, this.inst);
+			}
+			
+			return;
+		}
+		
+		this.stopStepping = false;
+		
+		// Move in steps of stepSize.
+		var startX = this.inst.x;
+		var startY = this.inst.y;
+		var endX = startX + mx;
+		var endY = startY + my;
+		var a = cr.angleTo(0, 0, mx, my);
+		var stepX = Math.cos(a) * this.stepSize;
+		var stepY = Math.sin(a) * this.stepSize;
+		
+		var stepCount = Math.floor(stepDist / this.stepSize);
+		var i = 1;						// skip 0th step (is same as starting position)
+		for ( ; i <= stepCount; ++i)	// include last step
+		{
+			this.inst.x = startX + stepX * i;
+			this.inst.y = startY + stepY * i;
+			this.inst.set_bbox_changed();
+			
+			this.runtime.trigger(cr.behaviors.Bullet.prototype.cnds.OnStep, this.inst);
+			
+			if (this.inst.isDestroyed || this.stopStepping)
+				return;
+		}
+		
+		// Do one last step at the finishing position, so we don't need an extra collision event
+		this.inst.x = endX;
+		this.inst.y = endY;
+		this.inst.set_bbox_changed();
+		this.runtime.trigger(cr.behaviors.Bullet.prototype.cnds.OnStep, this.inst);
+	};
+	
+
+	//////////////////////////////////////
+	// Conditions
+	function Cnds() {};
+
+	Cnds.prototype.CompareSpeed = function (cmp, s)
+	{
+		return cr.do_cmp(cr.distanceTo(0, 0, this.dx, this.dy), cmp, s);
+	};
+	
+	Cnds.prototype.CompareTravelled = function (cmp, d)
+	{
+		return cr.do_cmp(this.travelled, cmp, d);
+	};
+	
+	Cnds.prototype.OnStep = function ()
+	{
+		return true;
+	};
+	
+	Cnds.prototype.IsEnabled = function ()
+	{
+		return this.enabled;
+	};
+	
+	behaviorProto.cnds = new Cnds();
+
+	//////////////////////////////////////
+	// Actions
+	function Acts() {};
+
+	Acts.prototype.SetSpeed = function (s)
+	{
+		var a = cr.angleTo(0, 0, this.dx, this.dy);
+		this.dx = Math.cos(a) * s;
+		this.dy = Math.sin(a) * s;
+	};
+	
+	Acts.prototype.SetAcceleration = function (a)
+	{
+		this.acc = a;
+	};
+	
+	Acts.prototype.SetGravity = function (g)
+	{
+		this.g = g;
+	};
+	
+	Acts.prototype.SetAngleOfMotion = function (a)
+	{
+		a = cr.to_radians(a);
+		var s = cr.distanceTo(0, 0, this.dx, this.dy)
+		this.dx = Math.cos(a) * s;
+		this.dy = Math.sin(a) * s;
+	};
+	
+	Acts.prototype.Bounce = function (objtype)
+	{
+		if (!objtype)
+			return;
+		
+		var otherinst = objtype.getFirstPicked(this.inst);
+		
+		if (!otherinst)
+			return;
+			
+		var dt = this.runtime.getDt(this.inst);
+		var s = cr.distanceTo(0, 0, this.dx, this.dy);
+		var bounceAngle = this.runtime.calculateSolidBounceAngle(this.inst, this.lastx, this.lasty, otherinst);
+		this.dx = Math.cos(bounceAngle) * s;
+		this.dy = Math.sin(bounceAngle) * s;
+		this.inst.x += this.dx * dt;			// move out for one tick since the object can't have spent a tick in the solid
+		this.inst.y += this.dy * dt;
+		this.inst.set_bbox_changed();
+		
+		if (this.setAngle)
+		{
+			// Setting the object angle after a bounce may cause it to overlap a solid again.
+			// Make sure it's pushed out.
+			this.inst.angle = bounceAngle;
+			this.lastKnownAngle = bounceAngle;
+			this.inst.set_bbox_changed();
+		}
+		
+		// Advance the object until it is outside the solid
+		if (s !== 0)		// prevent divide-by-zero
+		{
+			if (this.bounceOffSolid)
+			{
+				if (!this.runtime.pushOutSolid(this.inst, this.dx / s, this.dy / s, Math.max(s * 2.5 * dt, 30)))
+					this.runtime.pushOutSolidNearest(this.inst, 100);
+			}
+			else 
+			{
+				this.runtime.pushOut(this.inst, this.dx / s, this.dy / s, Math.max(s * 2.5 * dt, 30), otherinst)
+			}
+		}
+	};
+	
+	Acts.prototype.SetDistanceTravelled = function (d)
+	{
+		this.travelled = d;
+	};
+	
+	Acts.prototype.SetEnabled = function (en)
+	{
+		this.enabled = (en === 1);
+	};
+	
+	Acts.prototype.StopStepping = function ()
+	{
+		this.stopStepping = true;
+	}
+	
+	behaviorProto.acts = new Acts();
+
+	//////////////////////////////////////
+	// Expressions
+	function Exps() {};
+
+	Exps.prototype.Speed = function (ret)
+	{
+		var s = cr.distanceTo(0, 0, this.dx, this.dy);
+		
+		// Due to floating point inaccuracy is likely to return 99.9999999 when speed is set to 100.
+		// So round to nearest millionth of a pixel per second.
+		s = cr.round6dp(s);
+		
+		ret.set_float(s);
+	};
+	
+	Exps.prototype.Acceleration = function (ret)
+	{
+		ret.set_float(this.acc);
+	};
+	
+	Exps.prototype.AngleOfMotion = function (ret)
+	{
+		ret.set_float(cr.to_degrees(cr.angleTo(0, 0, this.dx, this.dy)));
+	};
+	
+	Exps.prototype.DistanceTravelled = function (ret)
+	{
+		ret.set_float(this.travelled);
+	};
+	
+	Exps.prototype.Gravity = function (ret)
+	{
+		ret.set_float(this.g);
+	};
+	
+	behaviorProto.exps = new Exps();
+	
+}());
+
+// Wrap
+// ECMAScript 5 strict mode
+
+;
+;
+
+/////////////////////////////////////
+// Behavior class
+cr.behaviors.wrap = function(runtime)
+{
+	this.runtime = runtime;
+};
+
+(function ()
+{
+	var behaviorProto = cr.behaviors.wrap.prototype;
+		
+	/////////////////////////////////////
+	// Behavior type class
+	behaviorProto.Type = function(behavior, objtype)
+	{
+		this.behavior = behavior;
+		this.objtype = objtype;
+		this.runtime = behavior.runtime;
+	};
+
+	var behtypeProto = behaviorProto.Type.prototype;
+
+	behtypeProto.onCreate = function()
+	{
+	};
+
+	/////////////////////////////////////
+	// Behavior instance class
+	behaviorProto.Instance = function(type, inst)
+	{
+		this.type = type;
+		this.behavior = type.behavior;
+		this.inst = inst;				// associated object instance to modify
+		this.runtime = type.runtime;
+	};
+	
+	var behinstProto = behaviorProto.Instance.prototype;
+
+	behinstProto.onCreate = function()
+	{
+		this.mode = this.properties[0];		// 0 = wrap to layout, 1 = wrap to viewport
+	};
+
+	behinstProto.tick = function ()
+	{
+		var inst = this.inst;
+		inst.update_bbox();
+		var bbox = inst.bbox;
+		var layer = inst.layer;
+		var layout = layer.layout;
+		
+		var lbound = 0, rbound = 0, tbound = 0, bbound = 0;
+		
+		// wrap to layout
+		if (this.mode === 0)
+		{
+			rbound = layout.width;
+			bbound = layout.height;
+		}
+		// wrap to viewport
+		else
+		{
+			lbound = layer.viewLeft;
+			rbound = layer.viewRight;
+			tbound = layer.viewTop;
+			bbound = layer.viewBottom;
+		}
+		
+		if (bbox.right < lbound)
+		{
+			inst.x = (rbound - 1) + (inst.x - bbox.left);
+			inst.set_bbox_changed();
+		}
+		else if (bbox.left > rbound)
+		{
+			inst.x = (lbound + 1) - (bbox.right - inst.x);
+			inst.set_bbox_changed();
+		}
+		else if (bbox.bottom < tbound)
+		{
+			inst.y = (bbound - 1) + (inst.y - bbox.top);
+			inst.set_bbox_changed();
+		}
+		else if (bbox.top > bbound)
+		{
+			inst.y = (tbound + 1) - (bbox.bottom - inst.y);
+			inst.set_bbox_changed();
+		}
+	};
+	
+}());
+
 cr.getObjectRefTable = function () {
 	return [
+		cr.plugins_.Audio,
 		cr.plugins_.Sprite,
-		cr.behaviors.DragnDrop,
 		cr.behaviors.solid,
 		cr.behaviors.Physics,
-		cr.behaviors.bound,
+		cr.plugins_.sliderbar,
+		cr.plugins_.Button,
+		cr.plugins_.Text,
 		cr.plugins_.Mouse,
-		cr.plugins_.Touch,
+		cr.behaviors.DragnDrop,
+		cr.behaviors.bound,
+		cr.plugins_.Particles,
+		cr.behaviors.scrollto,
+		cr.behaviors.Sin,
+		cr.behaviors.EightDir,
 		cr.plugins_.TiledBg,
 		cr.behaviors.Bullet,
 		cr.behaviors.wrap,
-		cr.behaviors.scrollto,
-		cr.behaviors.Sin,
-		cr.plugins_.Particles,
-		cr.plugins_.Button,
-		cr.plugins_.Audio,
-		cr.plugins_.Text,
-		cr.behaviors.EightDir,
-		cr.plugins_.sliderbar,
+		cr.plugins_.Touch,
 		cr.system_object.prototype.cnds.OnLayoutStart,
 		cr.behaviors.Physics.prototype.acts.SetWorldGravity,
 		cr.behaviors.Bullet.prototype.acts.SetAngleOfMotion,
 		cr.behaviors.Physics.prototype.acts.SetEnabled,
 		cr.behaviors.Physics.prototype.acts.SetElasticity,
-		cr.behaviors.DragnDrop.prototype.cnds.OnDrop,
+		cr.plugins_.Sprite.prototype.acts.SetWidth,
 		cr.system_object.prototype.cnds.CompareBoolVar,
+		cr.plugins_.Sprite.prototype.acts.StopAnim,
+		cr.plugins_.Sprite.prototype.acts.SetAnimFrame,
+		cr.plugins_.Sprite.prototype.acts.SetVisible,
+		cr.behaviors.DragnDrop.prototype.cnds.OnDrop,
 		cr.behaviors.Physics.prototype.acts.ApplyImpulseToward,
 		cr.plugins_.Touch.prototype.exps.X,
 		cr.plugins_.Touch.prototype.exps.Y,
@@ -36281,10 +36285,16 @@ cr.getObjectRefTable = function () {
 		cr.system_object.prototype.acts.SetVar,
 		cr.plugins_.Text.prototype.acts.SetText,
 		cr.behaviors.Physics.prototype.acts.SetFriction,
+		cr.system_object.prototype.cnds.ForEach,
+		cr.plugins_.Sprite.prototype.acts.SetPos,
+		cr.system_object.prototype.exps.random,
+		cr.system_object.prototype.exps.layoutwidth,
+		cr.plugins_.Sprite.prototype.exps.Width,
+		cr.system_object.prototype.exps.layoutheight,
+		cr.plugins_.Sprite.prototype.exps.Height,
 		cr.plugins_.Sprite.prototype.cnds.IsOverlapping,
 		cr.plugins_.Sprite.prototype.acts.SetBoolInstanceVar,
 		cr.system_object.prototype.acts.SetBoolVar,
-		cr.system_object.prototype.cnds.ForEach,
 		cr.plugins_.Sprite.prototype.cnds.IsBoolInstanceVarSet,
 		cr.system_object.prototype.cnds.Every,
 		cr.system_object.prototype.acts.SubVar,
@@ -36293,7 +36303,14 @@ cr.getObjectRefTable = function () {
 		cr.plugins_.Button.prototype.cnds.IsChecked,
 		cr.plugins_.Button.prototype.acts.SetText,
 		cr.plugins_.sliderbar.prototype.cnds.OnChanged,
-		cr.plugins_.sliderbar.prototype.exps.Value
+		cr.plugins_.sliderbar.prototype.exps.Value,
+		cr.plugins_.Sprite.prototype.acts.SetCollisions,
+		cr.plugins_.Sprite.prototype.acts.SetInstanceVar,
+		cr.system_object.prototype.cnds.EveryTick,
+		cr.behaviors.DragnDrop.prototype.cnds.IsDragging,
+		cr.plugins_.Sprite.prototype.acts.SetY,
+		cr.system_object.prototype.exps.sin,
+		cr.plugins_.Sprite.prototype.acts.MoveAtAngle
 	];
 };
 
