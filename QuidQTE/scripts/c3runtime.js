@@ -500,6 +500,18 @@ self["C3_Shaders"] = {};
 
 "use strict";C3.Plugins.Button.Exps={Text(){return this._text}};
 
+"use strict";C3.Plugins.Browser=class extends C3.SDKPluginBase{constructor(a){super(a)}Release(){super.Release()}};
+
+"use strict";C3.Plugins.Browser.Type=class extends C3.SDKTypeBase{constructor(a){super(a)}Release(){super.Release()}OnCreate(){}};
+
+"use strict";{C3.Plugins.Browser.Instance=class extends C3.SDKInstanceBase{constructor(a){super(a,"browser"),this._initLocationStr="",this._isOnline=!1,this._referrer="",this._docTitle="",this._isCookieEnabled=!1,this._screenWidth=0,this._screenHeight=0,this._windowOuterWidth=0,this._windowOuterHeight=0,this._isScirraArcade=!1,this.AddDOMMessageHandler("online-state",(a)=>this._OnOnlineStateChanged(a)),this.AddDOMMessageHandler("backbutton",()=>this._OnBackButton()),this.AddDOMMessageHandler("sw-message",(a)=>this._OnSWMessage(a));const b=this.GetRuntime().Dispatcher();this._disposables=new C3.CompositeDisposable(C3.Disposable.From(b,"afterfirstlayoutstart",()=>this._OnAfterFirstLayoutStart()),C3.Disposable.From(b,"window-resize",()=>this._OnWindowResize()),C3.Disposable.From(b,"suspend",()=>this._OnSuspend()),C3.Disposable.From(b,"resume",()=>this._OnResume())),this._runtime.AddLoadPromise(this.PostToDOMAsync("get-initial-state",{"exportType":this._runtime.GetExportType()}).then((a)=>{this._initLocationStr=a["location"],this._isOnline=a["isOnline"],this._referrer=a["referrer"],this._docTitle=a["title"],this._isCookieEnabled=a["isCookieEnabled"],this._screenWidth=a["screenWidth"],this._screenHeight=a["screenHeight"],this._windowOuterWidth=a["windowOuterWidth"],this._windowOuterHeight=a["windowOuterHeight"],this._isScirraArcade=a["isScirraArcade"]}))}Release(){super.Release()}_OnAfterFirstLayoutStart(){this.PostToDOM("ready-for-sw-messages")}async _OnOnlineStateChanged(a){const b=!!a["isOnline"];this._isOnline===b||(this._isOnline=b,this._isOnline?await this.TriggerAsync(C3.Plugins.Browser.Cnds.OnOnline):await this.TriggerAsync(C3.Plugins.Browser.Cnds.OnOffline))}async _OnWindowResize(){await this.TriggerAsync(C3.Plugins.Browser.Cnds.OnResize)}_OnSuspend(){this.Trigger(C3.Plugins.Browser.Cnds.OnPageHidden)}_OnResume(){this.Trigger(C3.Plugins.Browser.Cnds.OnPageVisible)}async _OnBackButton(){await this.TriggerAsync(C3.Plugins.Browser.Cnds.OnBackButton)}_OnSWMessage(a){const b=a["type"];"downloading-update"===b?this.Trigger(C3.Plugins.Browser.Cnds.OnUpdateFound):"update-ready"===b||"update-pending"===b?this.Trigger(C3.Plugins.Browser.Cnds.OnUpdateReady):"offline-ready"===b&&this.Trigger(C3.Plugins.Browser.Cnds.OnOfflineReady)}GetDebuggerProperties(){return[{title:"plugins.browser.name",properties:[{name:"plugins.browser.debugger.user-agent",value:navigator.userAgent},{name:"plugins.browser.debugger.is-online",value:this._isOnline},{name:"plugins.browser.debugger.is-fullscreen",value:this._runtime.GetCanvasManager().IsDocumentFullscreen()}]}]}}}
+
+"use strict";C3.Plugins.Browser.Cnds={IsOnline(){return this._isOnline},OnOnline(){return!0},OnOffline(){return!0},OnResize(){return!0},CookiesEnabled(){return this._isCookieEnabled},IsFullscreen(){return this._runtime.GetCanvasManager().IsDocumentFullscreen()},OnBackButton(){return!0},IsPortraitLandscape(a){const b=this._runtime.GetCanvasManager().GetLastWidth(),c=this._runtime.GetCanvasManager().GetLastHeight(),d=b<=c?0:1;return d===a},OnUpdateFound(){return!0},OnUpdateReady(){return!0},OnOfflineReady(){return!0},PageVisible(){return!this._runtime.IsSuspended()},OnPageHidden(){return!0},OnPageVisible(){return!0},HasJava(){return!1},IsDownloadingUpdate(){return!1},OnMenuButton(){return!1},OnSearchButton(){return!1},IsMetered(){return!1},IsCharging(){return!0},SupportsFullscreen(){return!0}};
+
+"use strict";{const ORIENTATIONS=["portrait","landscape","portrait-primary","portrait-secondary","landscape-primary","landscape-secondary"];C3.Plugins.Browser.Acts={Alert(a){this.PostToDOM("alert",{"message":a.toString()})},Close(){this._isScirraArcade||(this._runtime.IsDebug()?C3Debugger.CloseWindow():this.PostToDOM("close"))},Focus(){this.PostToDOM("set-focus",{"isFocus":!0})},Blur(){this.PostToDOM("set-focus",{"isFocus":!1})},GoBack(){this._isScirraArcade||this.PostToDOM("navigate",{"type":"back"})},GoForward(){this._isScirraArcade||this.PostToDOM("navigate",{"type":"forward"})},GoHome(){this._isScirraArcade||this.PostToDOM("navigate",{"type":"home"})},Reload(){this._isScirraArcade||this.PostToDOM("navigate",{"type":"reload"})},GoToURL(a,b){this.PostToDOM("navigate",{"type":"url","url":a,"target":b,"exportType":this._runtime.GetExportType()})},GoToURLWindow(a,b){this.PostToDOM("navigate",{"type":"new-window","url":a,"tag":b,"exportType":this._runtime.GetExportType()})},RequestFullScreen(a){2<=a&&(a+=1),6===a&&(a=2),1===a&&(a=0);const b=C3.CanvasManager._FullscreenModeNumberToString(a);this._runtime.GetCanvasManager().SetDocumentFullscreenMode(b),this._PostToDOMMaybeSync("request-fullscreen")},CancelFullScreen(){this._PostToDOMMaybeSync("exit-fullscreen")},Vibrate(a){const b=a.split(",");for(let c=0,d=b.length;c<d;++c)b[c]=parseInt(b[c],10);this._PostToDOMMaybeSync("vibrate",{"pattern":b})},InvokeDownload(a,b){b&&this._runtime.InvokeDownload(a,b)},InvokeDownloadString(a,b,c){if(c){const d=`data:${b},${encodeURIComponent(a)}`;this._runtime.InvokeDownload(d,c)}},ConsoleLog(a,b){b=b.toString(),0===a?console.log(b):1===a?console.warn(b):2==a&&console.error(b)},ConsoleGroup(a){console.group(a)},ConsoleGroupEnd(){console.groupEnd()},ExecJs(jsStr){try{eval(jsStr)}catch(a){console.error("Error executing JavaScript: ",a)}},LockOrientation(a){if(a=Math.floor(a),!(0>a||a>=ORIENTATIONS.length)){const b=ORIENTATIONS[a];this._PostToDOMMaybeSync("lock-orientation",{"orientation":b})}},UnlockOrientation(){this._PostToDOMMaybeSync("unlock-orientation")}}}
+
+'use strict';C3.Plugins.Browser.Exps={URL(){return this._runtime.IsInWorker()?this._initLocationStr:location.toString()},Protocol(){return this._runtime.IsInWorker()?new URL(this._initLocationStr).protocol:location.protocol},Domain(){return this._runtime.IsInWorker()?new URL(this._initLocationStr).hostname:location.hostname},PathName(){return this._runtime.IsInWorker()?new URL(this._initLocationStr).pathname:location.pathname},Hash(){return this._runtime.IsInWorker()?new URL(this._initLocationStr).hash:location.hash},QueryString(){return this._runtime.IsInWorker()?new URL(this._initLocationStr).search:location.search},QueryParam(a){const b=this._runtime.IsInWorker()?new URL(this._initLocationStr).search:location.search,c=RegExp('[?&]'+a+'=([^&]*)').exec(b);return c?decodeURIComponent(c[1].replace(/\+/g,' ')):''},Referrer(){return this._referrer},Title(){return this._docTitle},Language(){return navigator.language},Platform(){return navigator.platform},UserAgent(){return navigator.userAgent},ExecJS(jsStr){let result=0;try{result=eval(jsStr)}catch(a){console.error('Error executing JavaScript: ',a)}return'number'==typeof result||'string'==typeof result?result:'boolean'==typeof result?result?1:0:0},Name(){return navigator.appName},Version(){return navigator.appVersion},Product(){return navigator.product},Vendor(){return navigator.vendor},BatteryLevel(){return 1},BatteryTimeLeft(){return 1/0},Bandwidth(){const a=navigator['connection'];return a?a['downlink']||a['downlinkMax']||a['bandwidth']||1/0:1/0},ConnectionType(){const a=navigator['connection'];return a?a['type']||'unknown':'unknown'},DevicePixelRatio(){return self.devicePixelRatio},ScreenWidth(){return this._screenWidth},ScreenHeight(){return this._screenHeight},WindowInnerWidth(){return this._runtime.GetCanvasManager().GetLastWidth()},WindowInnerHeight(){return this._runtime.GetCanvasManager().GetLastHeight()},WindowOuterWidth(){return this._windowOuterWidth},WindowOuterHeight(){return this._windowOuterWidth}};
+
 "use strict";C3.Behaviors.Timer=class extends C3.SDKBehaviorBase{constructor(a){super(a)}Release(){super.Release()}};
 
 "use strict";C3.Behaviors.Timer.Type=class extends C3.SDKBehaviorTypeBase{constructor(a){super(a)}Release(){super.Release()}OnCreate(){}};
@@ -535,11 +547,13 @@ self.C3_GetObjectRefTable = function () {
 		C3.Behaviors.Pin,
 		C3.Plugins.progressbar,
 		C3.Plugins.Button,
+		C3.Plugins.Browser,
 		C3.Plugins.System.Cnds.IsGroupActive,
 		C3.Plugins.System.Cnds.OnLayoutStart,
 		C3.Plugins.System.Acts.SetVar,
 		C3.Plugins.System.Acts.SetBoolVar,
 		C3.Plugins.Arr.Acts.SetX,
+		C3.Plugins.Arr.Acts.SetSize,
 		C3.Plugins.System.Cnds.For,
 		C3.Plugins.System.Exps.loopindex,
 		C3.Plugins.Arr.Exps.At,
@@ -552,8 +566,8 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.System.Cnds.EveryTick,
 		C3.Plugins.Text.Acts.SetText,
 		C3.Plugins.Sprite.Acts.SetWidth,
-		C3.Plugins.System.Cnds.Every,
-		C3.Plugins.System.Acts.SubVar,
+		C3.Plugins.Sprite.Exps.Width,
+		C3.Plugins.System.Exps.dt,
 		C3.Plugins.Touch.Cnds.IsInTouch,
 		C3.Plugins.Touch.Cnds.CompareTouchSpeed,
 		C3.Plugins.Touch.Exps.AngleAt,
@@ -572,6 +586,7 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Sprite.Acts.Destroy,
 		C3.Plugins.Text.Acts.Destroy,
 		C3.Plugins.Button.Acts.SetVisible,
+		C3.Plugins.Sprite.Cnds.CompareWidth,
 		C3.Plugins.Button.Cnds.OnClicked,
 		C3.Plugins.System.Acts.RestartLayout
 	];
@@ -675,15 +690,22 @@ self.C3_GetObjectRefTable = function () {
 	self.C3_ExpressionFuncs = [
 		() => "Initialization",
 () => 0,
-() => 3,
 () => "Left",
 () => 1,
 () => "Right",
 () => 2,
 () => "Up",
+() => 3,
 () => "Down",
+p => {
+const v0 = p._GetNode(0).GetVar();
+return () => v0.GetValue();
+},
 () => "PopulateRequiredGestures",
-() => 6,
+p => {
+const v0 = p._GetNode(0).GetVar();
+return () => (v0.GetValue() - 1);
+},
 p => {
 const f0 = p._GetNode(0).GetBoundMethod();
 return () => f0("PopulateRequiredGestures");
@@ -723,8 +745,10 @@ const n0 = p._GetNode(0);
 return () => (n0.ExpInstVar() * (-40));
 },
 p => {
-const v0 = p._GetNode(0).GetVar();
-return () => v0.GetValue();
+const n0 = p._GetNode(0);
+const v1 = p._GetNode(1).GetVar();
+const f2 = p._GetNode(2).GetBoundMethod();
+return () => (n0.ExpObject() - ((854 / v1.GetValue()) * f2()));
 },
 () => 200,
 p => {
@@ -762,7 +786,9 @@ return () => (n0.ExpObject() - v1.GetValue());
 p => {
 const n0 = p._GetNode(0);
 return () => (n0.ExpObject() + 1);
-}
+},
+() => 9,
+() => 11
 	];
 }
 
