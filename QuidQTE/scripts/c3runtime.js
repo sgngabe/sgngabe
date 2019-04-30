@@ -588,7 +588,10 @@ self.C3_GetObjectRefTable = function () {
 		C3.Plugins.Button.Acts.SetVisible,
 		C3.Plugins.Sprite.Cnds.CompareWidth,
 		C3.Plugins.Button.Cnds.OnClicked,
-		C3.Plugins.System.Acts.RestartLayout
+		C3.Plugins.System.Acts.RestartLayout,
+		C3.Plugins.Sprite.Acts.SetVisible,
+		C3.Plugins.Button.Acts.SetChecked,
+		C3.Plugins.System.Acts.ToggleBoolVar
 	];
 };
 
@@ -768,7 +771,7 @@ return () => (v0.GetValue() + 1);
 () => 0.2,
 p => {
 const n0 = p._GetNode(0);
-return () => (n0.ExpObject() - 155);
+return () => (n0.ExpObject() - 200);
 },
 () => -100,
 () => -80,
