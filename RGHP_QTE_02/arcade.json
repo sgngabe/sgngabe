@@ -1,0 +1,25 @@
+﻿{
+	"name": "RGHP_QTE_02",
+	"version": "1.0.0.0",
+	"description": "",
+	"id": "",
+	"viewport-width": 1920,
+	"viewport-height": 1080,
+	"author": "",
+	"email": "",
+	"website": "",
+	"orientations": "any",
+	"c2version": "269",
+	"used-plugins": [
+		"Sprite",
+		"Text",
+		"Touch"
+	],
+	"used-behaviors": [
+		"Bullet",
+		"EightDir",
+		"Rotate",
+		"Sin",
+		"solid"
+	]
+}
